@@ -4,6 +4,7 @@ import { autoCompleteMoves, canAutoComplete, heuristicHint, isBlocked } from './
 import {
   applyMove,
   cloneState,
+  column,
   destinationsFor,
   foundationId,
   isLegal,
@@ -15,8 +16,6 @@ import {
   setup,
   tableauId,
   undo,
-  FOUNDATION_COUNT,
-  TABLEAU_COUNT,
   type KlondikeMove,
   type KlondikeOptions,
   type KlondikePileId,
@@ -49,23 +48,22 @@ function piles(state: KlondikeState): PileSnapshot[] {
       cards: state.waste.map((card) => ({ card, faceUp: true })),
     },
   ];
-  for (let i = 0; i < FOUNDATION_COUNT; i++) {
+  state.foundations.forEach((pile, i) => {
     out.push({
       id: foundationId(i),
       kind: 'foundation',
       index: i,
-      cards: (state.foundations[i] ?? []).map((card) => ({ card, faceUp: true })),
+      cards: pile.map((card) => ({ card, faceUp: true })),
     });
-  }
-  for (let i = 0; i < TABLEAU_COUNT; i++) {
-    const col = state.tableau[i];
+  });
+  state.tableau.forEach((col, i) => {
     out.push({
       id: tableauId(i),
       kind: 'tableau',
       index: i,
-      cards: (col?.cards ?? []).map((card, k) => ({ card, faceUp: k >= (col?.faceDown ?? 0) })),
+      cards: col.cards.map((card, k) => ({ card, faceUp: k >= col.faceDown })),
     });
-  }
+  });
   return out;
 }
 
@@ -86,9 +84,7 @@ function canDrag(state: KlondikeState, pileId: string, cardIndex: number): boole
   if (!parsed || parsed.kind === 'stock') return false;
   const cards = pileCards(state, pileId as KlondikePileId);
   if (cardIndex < 0 || cardIndex >= cards.length) return false;
-  if (parsed.kind === 'tableau') {
-    return cardIndex >= (state.tableau[parsed.index]?.faceDown ?? 0);
-  }
+  if (parsed.kind === 'tableau') return cardIndex >= column(state, parsed.index).faceDown;
   return cardIndex === cards.length - 1;
 }
 

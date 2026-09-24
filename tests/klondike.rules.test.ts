@@ -85,6 +85,9 @@ describe('identifiants de piles', () => {
     expect(() => pileCards(s, 'zz' as never)).toThrow();
     expect(movableCount(s, 'zz' as never)).toBe(0);
     expect(movableCount(s, 'stock')).toBe(0);
+    expect(pileCards(buildState({ stock: '2c 3d' }), 'stock').length).toBe(2);
+    expect(movableCount(buildState({}), 'waste')).toBe(0);
+    expect(movableCount(buildState({ waste: '4h' }), 'waste')).toBe(1);
   });
 });
 

@@ -12,7 +12,6 @@ import {
   isWon,
   legalMoves,
   moveOf,
-  parsePileId,
   tableauId,
   topOf,
   DRAW,
@@ -20,6 +19,7 @@ import {
   TABLEAU_COUNT,
   type KlondikeMove,
   type KlondikeState,
+  type TableauColumn,
 } from './rules';
 
 /**
@@ -55,8 +55,9 @@ function greedyFinish(state: KlondikeState): KlondikeMove[] | null {
   const sim = cloneState(state);
   const moves: KlondikeMove[] = [];
   let progressSinceRecycle = true;
-  // Borne de sécurité : largement plus que nécessaire pour 52 cartes.
-  for (let guard = 0; guard < 5000; guard++) {
+  // Termine toujours : au plus 52 montées, et entre deux montées au plus un
+  // retournement de défausse suivi d'un passage complet dans la pioche.
+  for (;;) {
     if (isWon(sim)) return moves;
     const up = lowestFoundationMove(sim);
     let move: KlondikeMove;
@@ -74,8 +75,6 @@ function greedyFinish(state: KlondikeState): KlondikeMove[] | null {
     applyMove(sim, move);
     moves.push(move);
   }
-  /* c8 ignore next */
-  return null;
 }
 
 /** Toutes les cartes du tableau sont visibles et la fin est triviale. */
@@ -85,7 +84,7 @@ export function canAutoComplete(state: KlondikeState): boolean {
 }
 
 export function autoCompleteMoves(state: KlondikeState): KlondikeMove[] {
-  if (!canAutoComplete(state)) return [];
+  if (isWon(state) || faceDownTotal(state) > 0) return [];
   return greedyFinish(state) ?? [];
 }
 
@@ -128,18 +127,23 @@ function stateKey(state: KlondikeState): string {
   return parts.join('|');
 }
 
-/** Priorité d'un coup qui progresse immédiatement (pour choisir l'indice). */
-function progressPriority(before: KlondikeState, move: KlondikeMove, after: KlondikeState): number {
-  if (move.type !== 'move') return 10;
+/**
+ * Priorité d'un coup qui progresse immédiatement (pour choisir l'indice),
+ * déduite de la différence entre les deux positions : révéler une carte
+ * (surtout dans une grande pile cachée) d'abord, puis monter en fondation
+ * (les petites cartes d'abord), puis vider un peu la pioche.
+ */
+function progressPriority(before: KlondikeState, after: KlondikeState): number {
   let priority = 0;
-  if (faceDownTotal(after) < faceDownTotal(before)) {
-    const src = parsePileId(move.from);
-    priority += 100 + (src?.kind === 'tableau' ? column(before, src.index).faceDown : 0);
-  }
-  if (move.to.startsWith('f')) {
-    const card = topOf(after.foundations[Number(move.to.slice(1))] ?? []) as Card;
-    priority += 60 + (13 - rankOf(card));
-  } else if (move.from === 'waste') {
+  before.tableau.forEach((col, i) => {
+    if ((after.tableau[i] as TableauColumn).faceDown < col.faceDown) priority += 100 + col.faceDown;
+  });
+  after.foundations.forEach((pile, i) => {
+    if (pile.length > (before.foundations[i] as Card[]).length) {
+      priority += 60 + 13 - rankOf(topOf(pile) as Card);
+    }
+  });
+  if (after.stock.length + after.waste.length < before.stock.length + before.waste.length) {
     priority += 40;
   }
   return priority;
@@ -175,16 +179,15 @@ export function searchProgress(
     const next = cloneState(state);
     applyMove(next, move);
     if (isProgress(start, next)) {
-      const priority = progressPriority(state, move, next);
+      const priority = progressPriority(state, next);
       if (priority > bestPriority) {
         bestPriority = priority;
         best = move;
       }
       continue;
     }
-    const key = stateKey(next);
-    if (visited.has(key)) continue;
-    visited.add(key);
+    // Deux coups différents depuis la même position mènent toujours à des positions différentes.
+    visited.add(stateKey(next));
     frontier.push({ state: next, first: move });
   }
   if (best) return { blocked: false, firstMove: best, truncated: false };

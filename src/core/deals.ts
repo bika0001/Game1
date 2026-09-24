@@ -67,15 +67,13 @@ export function pickDeal(bank: BankFile, played: PlayedDeals, rng: Rng): PickedD
   const size = bank.seeds.length;
   if (size === 0) throw new Error('Banque de donnes vide.');
   if (played.count >= size) played.clear();
-  const remaining = size - played.count;
-  let target = rng.int(remaining);
-  for (let i = 0; i < size; i++) {
-    if (played.has(i)) continue;
-    if (target-- === 0) {
-      played.add(i);
-      return { index: i, seed: bank.seeds[i] as number };
-    }
+  // On prend la `target`-ième donne non jouée (il en reste toujours au moins target + 1).
+  const target = rng.int(size - played.count);
+  let index = -1;
+  for (let seen = -1; seen < target;) {
+    index++;
+    if (!played.has(index)) seen++;
   }
-  /* c8 ignore next */
-  throw new Error('Tirage de donne impossible.');
+  played.add(index);
+  return { index, seed: bank.seeds[index] as number };
 }

@@ -84,6 +84,16 @@ describe('solveur Klondike', () => {
     expect(result.nodes).toBeLessThanOrEqual(6 * DEFAULT_RESTARTS.length);
   });
 
+  it('explore de grands espaces (table de transposition agrandie)', () => {
+    // Recherche unique (sans redémarrage) sur une donne difficile : elle dépasse
+    // la capacité initiale de la table (32 768 positions).
+    const result = solve(setup(23, { drawCount: 1, maxPasses: null }), {
+      maxNodes: 150_000,
+      restarts: [{ share: 1, noise: 0 }],
+    });
+    expect(result.nodes).toBeGreaterThan(100_000);
+  });
+
   it('respecte la limite de temps (horloge injectée)', () => {
     let t = 0;
     const result = solve(setup(16, { drawCount: 1, maxPasses: null }), {

@@ -12,6 +12,7 @@ import {
   type KlondikeMove,
   type KlondikePileId,
   type KlondikeState,
+  type ParsedPile,
 } from './games/klondike/rules';
 
 /**
@@ -31,13 +32,11 @@ const EMPTY_COLUMN_SCORE = 300;
 
 function destinationScore(
   state: KlondikeState,
-  from: KlondikePileId,
+  src: ParsedPile,
   cardIndex: number,
   to: KlondikePileId,
 ): number {
-  const src = parsePileId(from);
-  const dst = parsePileId(to);
-  if (!src || !dst) return -Infinity;
+  const dst = parsePileId(to) as ParsedPile;
   if (dst.kind === 'foundation') return FOUNDATION_SCORE - dst.index;
 
   const distance = src.kind === 'tableau' ? Math.abs(src.index - dst.index) : dst.index;
@@ -64,13 +63,13 @@ export function bestMoveForTap(
   const from = pileId as KlondikePileId;
   const length = pileCards(state, from).length;
   const count = length - cardIndex;
+  // Hors limites, carte cachée ou pas au sommet : rien à faire.
   if (cardIndex < 0 || count < 1 || count > movableCount(state, from)) return null;
-  if (parsed.kind === 'tableau' && cardIndex < column(state, parsed.index).faceDown) return null;
 
   let best: KlondikeMove | null = null;
   let bestScore = -Infinity;
   for (const to of destinationsFor(state, from, count)) {
-    const score = destinationScore(state, from, cardIndex, to);
+    const score = destinationScore(state, parsed, cardIndex, to);
     if (score > bestScore) {
       bestScore = score;
       best = moveOf(from, to, count);

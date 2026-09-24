@@ -47,6 +47,7 @@ describe('codec des solutions', () => {
     expect(() => replaySolution(fresh(), 'X0')).toThrow(/malformée/);
     expect(() => replaySolution(fresh(), 'W')).toThrow(/malformée/);
     expect(() => replaySolution(fresh(), '*!')).toThrow(/malformée/);
+    expect(() => replaySolution(fresh(), '*')).toThrow(/malformée/);
     expect(() => replaySolution(fresh(), 'W9')).toThrow(/Destination/);
     expect(() => replaySolution(fresh(), 'WF')).toThrow(/fondation/);
     expect(() => replaySolution(fresh(), 'aF')).toThrow(/fondation/);

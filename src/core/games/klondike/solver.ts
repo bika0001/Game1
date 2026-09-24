@@ -137,26 +137,25 @@ function fmix(h: number): number {
 class HashSet64 {
   private hi: Int32Array;
   private lo: Int32Array;
+  private used: Uint8Array;
   private mask: number;
   private count = 0;
 
   constructor(capacityPow2 = 16) {
     this.hi = new Int32Array(1 << capacityPow2);
     this.lo = new Int32Array(1 << capacityPow2);
+    this.used = new Uint8Array(1 << capacityPow2);
     this.mask = (1 << capacityPow2) - 1;
   }
 
   /** Ajoute la clé ; renvoie false si elle était déjà présente. */
   add(h1: number, h2: number): boolean {
-    if (h1 === 0 && h2 === 0) h2 = 1;
     let i = h1 & this.mask;
-    while (true) {
-      const a = this.hi[i] as number;
-      const b = this.lo[i] as number;
-      if (a === 0 && b === 0) break;
-      if (a === h1 && b === h2) return false;
+    while (this.used[i]) {
+      if (this.hi[i] === h1 && this.lo[i] === h2) return false;
       i = (i + 1) & this.mask;
     }
+    this.used[i] = 1;
     this.hi[i] = h1;
     this.lo[i] = h2;
     if (++this.count * 2 > this.mask) this.grow();
@@ -164,20 +163,19 @@ class HashSet64 {
   }
 
   private grow(): void {
-    const oldHi = this.hi;
-    const oldLo = this.lo;
-    const size = oldHi.length * 2;
+    const { hi, lo, used } = this;
+    const size = hi.length * 2;
     this.hi = new Int32Array(size);
     this.lo = new Int32Array(size);
+    this.used = new Uint8Array(size);
     this.mask = size - 1;
-    for (let j = 0; j < oldHi.length; j++) {
-      const a = oldHi[j] as number;
-      const b = oldLo[j] as number;
-      if (a === 0 && b === 0) continue;
-      let i = a & this.mask;
-      while (!(this.hi[i] === 0 && this.lo[i] === 0)) i = (i + 1) & this.mask;
-      this.hi[i] = a;
-      this.lo[i] = b;
+    for (let j = 0; j < hi.length; j++) {
+      if (!used[j]) continue;
+      let i = (hi[j] as number) & this.mask;
+      while (this.used[i]) i = (i + 1) & this.mask;
+      this.used[i] = 1;
+      this.hi[i] = hi[j] as number;
+      this.lo[i] = lo[j] as number;
     }
   }
 }
@@ -233,15 +231,13 @@ class Search {
     private readonly deadline: number,
     private readonly now: () => number,
   ) {
-    for (let c = 0; c < COLS; c++) {
-      const col = state.tableau[c];
-      if (!col) continue;
+    state.tableau.forEach((col, c) => {
       this.len[c] = col.cards.length;
       this.down[c] = col.faceDown;
       col.cards.forEach((card, k) => {
         this.tab[c * CAP + k] = card;
       });
-    }
+    });
     for (const pile of state.foundations) {
       const bottom = pile[0];
       if (bottom === undefined) continue;
@@ -532,7 +528,6 @@ class Search {
 
   /** Une carte de rang `r` et de parité de couleur `red` est-elle disponible pour être posée ? */
   private hasPlaceableCard(r: number, red: number): boolean {
-    if (r < 1) return false;
     for (let k = 0; k < this.reachCount; k++) {
       const card = this.talon[this.reachIdx[k] as number] as number;
       if (rank(card) === r && (card & 1) === red) return true;
@@ -772,7 +767,10 @@ function expandPath(root: KlondikeState, path: readonly number[]): KlondikeMove[
         // Pioche : on tire (et retourne la défausse) jusqu'à voir la carte voulue.
         let guard = 0;
         while (topOf(state.waste) !== card) {
+          // Garde défensive : l'atteignabilité calculée par le solveur garantit la sortie.
+          /* v8 ignore start */
           if (++guard > 200) throw new Error('Solveur : carte de pioche introuvable.');
+          /* v8 ignore stop */
           play(state.stock.length > 0 ? DRAW : RECYCLE);
         }
         const to =
@@ -781,7 +779,10 @@ function expandPath(root: KlondikeState, path: readonly number[]): KlondikeMove[
       }
     }
   }
+  // Garde défensive : un chemin trouvé mène toujours à la victoire.
+  /* v8 ignore start */
   if (!isWon(state)) throw new Error('Solveur : la solution reconstruite ne gagne pas.');
+  /* v8 ignore stop */
   return moves;
 }
 

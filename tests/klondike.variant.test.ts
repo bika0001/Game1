@@ -35,6 +35,17 @@ describe('variante Klondike (interface commune)', () => {
     expect(klondike.cloneState(s)).toEqual(s);
   });
 
+  it('montre la défausse et les fondations', () => {
+    const s = buildState({ waste: '2c 3d', foundations: ['As 2s', '', 'Ac', ''] });
+    const piles = klondike.piles(s);
+    expect(piles.find((p) => p.id === 'waste')?.cards).toEqual([
+      { card: 4 + 2, faceUp: true },
+      { card: 8 + 3, faceUp: true },
+    ]);
+    expect(piles.find((p) => p.id === 'f0')?.cards.length).toBe(2);
+    expect(piles.find((p) => p.id === 'f2')?.cards[0]?.faceUp).toBe(true);
+  });
+
   it('décrit les coups pour l’affichage', () => {
     const s = buildState({ stock: '2c 3c 4c 5c', drawCount: 3, tableau: ['9h 8s', '9d'] });
     expect(klondike.describeMove(s, DRAW)).toEqual({

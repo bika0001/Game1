@@ -99,6 +99,7 @@ describe('auto-complétion', () => {
       stock: 'Ks Qs Js', // on tire J♠, Q♠ puis K♠ : seul le Roi est accessible
     });
     expect(canAutoComplete(s)).toBe(false);
+    expect(autoCompleteMoves(s)).toEqual([]);
   });
 
   it('refuse avec des passages limités épuisés', () => {
