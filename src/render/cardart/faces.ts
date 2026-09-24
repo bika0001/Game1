@@ -126,6 +126,24 @@ export function drawCardFace(
     drawSuit(ctx, suit, cx, cy, h * 0.36, color);
   }
 
+  // Signature marine discrète : une petite vague en bas à gauche.
+  ctx.save();
+  ctx.strokeStyle = 'rgba(42, 157, 143, 0.38)';
+  ctx.lineWidth = Math.max(1, w * 0.022);
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  const wy = y + h * 0.915;
+  const wx0 = x + w * 0.09;
+  const wx1 = x + w * 0.52;
+  for (let i = 0; i <= 24; i++) {
+    const px = wx0 + ((wx1 - wx0) * i) / 24;
+    const py = wy + Math.sin((i / 24) * Math.PI * 4) * h * 0.012;
+    if (i === 0) ctx.moveTo(px, py);
+    else ctx.lineTo(px, py);
+  }
+  ctx.stroke();
+  ctx.restore();
+
   // Petit index renversé en bas à droite, comme sur un jeu classique.
   ctx.save();
   ctx.translate(x + w - pad, y + h - top);

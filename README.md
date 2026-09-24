@@ -1,10 +1,12 @@
 # Solitaire Tides
 
-Un Solitaire classique, impeccable et confortable, pensé d'abord pour les joueurs de 40 à 75 ans :
-lisibilité, fluidité, zéro frustration. Le thème voilier (voyage d'île en île) arrive en phase 2.
+Un Solitaire impeccable et confortable, pensé d'abord pour les joueurs de 40 à 75 ans — lisibilité,
+fluidité, zéro frustration — dans un univers marin vivant : on joue sur un lagon animé. Le thème
+voilier (voyage d'île en île) arrive en phase 2.
 
-> **État : phase 1 terminée — Klondike jouable sur le web.** En attente de validation
-> (ressenti, style visuel). Voir [ce que tu dois faire](A_FAIRE.md) et [les décisions prises](DECISIONS.md).
+> **État : phase 1 terminée, puis refonte visuelle** (lagon animé, cartes animées comme de vrais
+> objets, interface ludique, rendu net et adaptatif). En attente de validation (ressenti, style
+> visuel). Voir [ce que tu dois faire](A_FAIRE.md) et [les décisions prises](DECISIONS.md).
 
 ## Lancer le jeu
 
@@ -44,8 +46,15 @@ et du dos (`&only=faces` pour les figures seules, `&lang=en` pour les index angl
 - **Terminer** : dès que tout est visible et la fin triviale, un bouton envoie tout aux fondations en
   cascade (un tap pendant la cascade la termine).
 - **Plus aucun coup possible** : proposition d'annuler, de rejouer la donne ou d'en commencer une autre.
-- **Victoire** : les cartes s'envolent comme des mouettes (passable d'un tap), puis bilan temps / coups /
-  score.
+- **Victoire** : « Bravo ! » qui rebondit, cartes qui jaillissent des fondations et plongent dans le
+  lagon, confettis marins (passable d'un tap), puis bilan temps / coups / score avec compteurs animés.
+- **Décor vivant** : lagon animé vu du dessus (reflets du soleil au fond de l'eau, poissons, bulles,
+  algues, ombre de mouette) ; tapis classique en option. Menu : marine animée et voilier qui tangue.
+- **Cartes animées comme de vrais objets** : vols en arc, soulèvement et ombre dynamique, inclinaison,
+  retournement en perspective, ondes sur l'eau à l'arrivée, éclats dorés et notes qui montent sur les
+  fondations, points qui s'envolent, glisser-déposer en « guirlande » qui s'incline avec la vitesse.
+- **Rendu net et fluide** : tout est dessiné à la résolution physique de l'écran ; qualité adaptative
+  (l'ambiance du décor s'allège si l'appareil peine, jamais les cartes).
 - **Lisibilité** : cartes générées en code à la résolution exacte de l'écran, gros index en haut de carte
   (lisible même en chevauchement), colonnes qui se resserrent automatiquement, portrait **et** paysage
   (mise en page dédiée), tablettes (cartes plus grandes, interface de taille normale), mode gaucher,
@@ -71,6 +80,9 @@ src/
     games/klondike/        règles, score, analyse (auto-complétion, blocage), solveur, codec
     data/winnable_deals/   banques générées (JSON chargés à la demande + solutions pour les tests)
   render/                  Phaser : scènes, mise en page, art des cartes, interface
+    decor/                 décors animés (lagon, tapis classique, marine du menu) et textures d'effets
+    objects/               carte animée (CardView), effets (ondes, éclats, fête de victoire)
+    quality.ts             qualité adaptative selon les images par seconde
   services/                stockage, audio, haptique, analytics, client du solveur
   workers/                 Web Worker du solveur (indices et détection de blocage)
   config/                  balance.ts (tous les chiffres du jeu), theme.ts (palette, proportions)

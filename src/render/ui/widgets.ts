@@ -1,14 +1,16 @@
 import Phaser from 'phaser';
 import { CSS, FONTS, PALETTE } from '../../config/theme';
 import { audio } from '../../services/audio';
+import { FX } from '../decor/fxTextures';
 import { drawIcon, type IconName } from './icons';
 
 /**
- * Petit kit d'interface : boutons, dialogue modal, sélecteur segmenté.
+ * Petit kit d'interface : boutons « bonbons » en relief, bulles de la barre
+ * d'outils, pastilles d'information, dialogue modal animé, sélecteur segmenté.
  * Toutes les tailles sont en pixels physiques ; `unit` = 1 px CSS × échelle d'interface.
  */
 
-export type ButtonStyle = 'primary' | 'secondary' | 'toolbar' | 'accent';
+export type ButtonStyle = 'primary' | 'secondary' | 'toolbar' | 'toolbarAccent' | 'accent';
 
 export interface ButtonOptions {
   readonly width: number;
@@ -25,6 +27,24 @@ export function isTap(pointer: Phaser.Input.Pointer, unit: number): boolean {
   return pointer.getDistance() < 14 * unit;
 }
 
+interface Palette {
+  readonly face: number;
+  readonly edge: number;
+  readonly text: string;
+  readonly icon: number;
+}
+
+const BUTTON_COLORS: Record<Exclude<ButtonStyle, 'toolbar' | 'toolbarAccent'>, Palette> = {
+  primary: { face: PALETTE.coral, edge: PALETTE.coralDark, text: CSS.foam, icon: PALETTE.foam },
+  accent: {
+    face: PALETTE.turquoise,
+    edge: PALETTE.turquoiseDark,
+    text: CSS.foam,
+    icon: PALETTE.foam,
+  },
+  secondary: { face: PALETTE.foam, edge: PALETTE.foamShade, text: CSS.navy, icon: PALETTE.navy },
+};
+
 export class Button extends Phaser.GameObjects.Container {
   private readonly bg: Phaser.GameObjects.Graphics;
   private readonly iconG: Phaser.GameObjects.Graphics | null;
@@ -33,19 +53,26 @@ export class Button extends Phaser.GameObjects.Container {
   private enabled = true;
   private busy = false;
   private opts: ButtonOptions;
+  private scaleTween: Phaser.Tweens.Tween | null = null;
+  private busyTween: Phaser.Tweens.Tween | null = null;
 
   constructor(scene: Phaser.Scene, x: number, y: number, opts: ButtonOptions) {
     super(scene, x, y);
     this.opts = opts;
     this.bg = scene.add.graphics();
     this.iconG = opts.icon ? scene.add.graphics() : null;
+    const toolbar = this.isToolbar;
     this.text = scene.add.text(0, 0, opts.label, {
-      fontFamily: FONTS.ui,
-      fontStyle: opts.style === 'toolbar' ? '600' : '700',
-      fontSize: `${Math.round((opts.style === 'toolbar' ? 13 : 17) * opts.unit)}px`,
-      color: this.textColor(),
+      fontFamily: FONTS.display,
+      fontStyle: toolbar ? '600' : '600',
+      fontSize: `${Math.round((toolbar ? 14 : 19) * opts.unit)}px`,
+      color: toolbar ? CSS.foam : this.palette().text,
       align: 'center',
     });
+    if (toolbar) {
+      this.text.setStroke(CSS.deep, Math.max(2, 3.5 * opts.unit));
+      this.text.setShadow(0, opts.unit, 'rgba(0,0,0,0.35)', 2 * opts.unit, true, false);
+    }
     this.text.setOrigin(0.5, 0.5);
     this.add(this.bg);
     if (this.iconG) this.add(this.iconG);
@@ -56,15 +83,23 @@ export class Button extends Phaser.GameObjects.Container {
       if (!this.enabled) return;
       this.pressed = true;
       this.redraw();
+      this.animateScale(0.93, 70, 'Quad.easeOut');
+    });
+    this.on('pointerover', (pointer: Phaser.Input.Pointer) => {
+      if (this.enabled && !pointer.isDown && !pointer.wasTouch) {
+        this.animateScale(1.04, 120, 'Quad.easeOut');
+      }
     });
     this.on('pointerout', () => {
       this.pressed = false;
       this.redraw();
+      this.animateScale(1, 160, 'Quad.easeOut');
     });
     this.on('pointerup', (pointer: Phaser.Input.Pointer) => {
       const wasPressed = this.pressed;
       this.pressed = false;
       this.redraw();
+      this.animateScale(1, 260, 'Back.easeOut');
       if (!wasPressed || !this.enabled || !isTap(pointer, this.opts.unit)) return;
       audio.play('click');
       this.opts.onClick();
@@ -73,33 +108,64 @@ export class Button extends Phaser.GameObjects.Container {
     scene.add.existing(this);
   }
 
-  private textColor(): string {
-    switch (this.opts.style) {
-      case 'primary':
-      case 'accent':
-        return CSS.foam;
-      case 'secondary':
-        return CSS.navy;
-      case 'toolbar':
-        return CSS.foam;
+  private get isToolbar(): boolean {
+    return this.opts.style === 'toolbar' || this.opts.style === 'toolbarAccent';
+  }
+
+  private palette(): Palette {
+    const style = this.opts.style;
+    if (style === 'toolbar') {
+      return { face: PALETTE.foam, edge: PALETTE.foamShade, text: CSS.foam, icon: PALETTE.navy };
     }
+    if (style === 'toolbarAccent') {
+      return { face: PALETTE.coral, edge: PALETTE.coralDark, text: CSS.foam, icon: PALETTE.foam };
+    }
+    return BUTTON_COLORS[style];
+  }
+
+  private animateScale(to: number, duration: number, ease: string): void {
+    this.scaleTween?.stop();
+    this.scaleTween = this.scene.tweens.add({ targets: this, scale: to, duration, ease });
   }
 
   setEnabled(enabled: boolean): this {
+    if (enabled === this.enabled) return this;
     this.enabled = enabled;
-    this.setAlpha(enabled ? 1 : 0.4);
+    this.scene.tweens.add({ targets: this, alpha: enabled ? 1 : 0.42, duration: 160 });
     return this;
   }
 
   /** Indique un calcul en cours (ex. : indice) sans bloquer l'interface. */
   setBusy(busy: boolean): this {
     this.busy = busy;
+    this.busyTween?.stop();
+    this.busyTween = null;
+    if (this.iconG) {
+      this.iconG.setAlpha(1);
+      if (busy) {
+        this.busyTween = this.scene.tweens.add({
+          targets: this.iconG,
+          alpha: 0.35,
+          duration: 380,
+          yoyo: true,
+          repeat: -1,
+        });
+      }
+    }
     this.redraw();
     return this;
   }
 
   setLabel(label: string): this {
     this.text.setText(label);
+    this.redraw();
+    return this;
+  }
+
+  /** Petit rebond pour attirer l'œil (ex. : bouton qui apparaît). */
+  bounce(): this {
+    this.setScale(0.6);
+    this.animateScale(1, 420, 'Back.easeOut');
     return this;
   }
 
@@ -113,54 +179,156 @@ export class Button extends Phaser.GameObjects.Container {
   }
 
   private redraw(): void {
-    const { width: w, height: h, style, unit } = this.opts;
+    const { width: w, height: h, unit } = this.opts;
     const g = this.bg;
+    const colors = this.palette();
     g.clear();
-    const r = Math.min(h / 2, 14 * unit);
-    if (style === 'toolbar') {
-      if (this.pressed || this.busy) {
-        g.fillStyle(0xffffff, this.busy ? 0.1 : 0.16);
-        g.fillRoundedRect(
-          -w / 2 + 4 * unit,
-          -h / 2 + 4 * unit,
-          w - 8 * unit,
-          h - 8 * unit,
-          12 * unit,
-        );
+    if (this.iconG) this.iconG.clear();
+    if (this.isToolbar) {
+      // Bulle ronde et libellé dessous.
+      const labelH = this.text.height;
+      const d = Math.max(20 * unit, Math.min(w * 0.72, h - labelH - 10 * unit, 52 * unit));
+      const edge = 3.5 * unit;
+      const top = -(d + edge + 2 * unit + labelH) / 2;
+      const cy = top + d / 2;
+      const press = this.pressed ? edge * 0.8 : 0;
+      g.fillStyle(0x000000, 0.22);
+      g.fillCircle(0, cy + edge + 2 * unit, d / 2);
+      g.fillStyle(colors.edge, 1);
+      g.fillCircle(0, cy + edge, d / 2);
+      g.fillStyle(colors.face, this.busy ? 0.8 : 1);
+      g.fillCircle(0, cy + press, d / 2);
+      g.fillStyle(0xffffff, 0.45);
+      g.fillEllipse(-d * 0.14, cy + press - d * 0.24, d * 0.46, d * 0.22);
+      if (this.iconG && this.opts.icon) {
+        drawIcon(this.iconG, this.opts.icon, 0, cy + press, d * 0.5, colors.icon);
       }
-    } else {
-      const fill =
-        style === 'primary' ? PALETTE.navy : style === 'accent' ? PALETTE.turquoise : 0xffffff;
-      g.fillStyle(0x000000, 0.18);
-      g.fillRoundedRect(-w / 2, -h / 2 + 3 * unit, w, h, r);
-      g.fillStyle(fill, 1);
-      g.fillRoundedRect(-w / 2, -h / 2 + (this.pressed ? 2 * unit : 0), w, h, r);
-      if (style === 'secondary') {
-        g.lineStyle(Math.max(1, 1.5 * unit), PALETTE.navy, 0.5);
-        g.strokeRoundedRect(-w / 2, -h / 2 + (this.pressed ? 2 * unit : 0), w, h, r);
-      }
+      this.text.setPosition(0, top + d + edge + 2 * unit + labelH / 2);
+      return;
     }
-    const press = this.pressed ? 2 * unit : 0;
-    const iconColor =
-      style === 'secondary' ? PALETTE.navy : style === 'toolbar' ? PALETTE.sand : PALETTE.foam;
+    const edge = 5 * unit;
+    const faceH = h - edge;
+    const r = Math.min(faceH / 2, 16 * unit);
+    const press = this.pressed ? edge * 0.75 : 0;
+    const top = -h / 2;
+    g.fillStyle(0x000000, 0.2);
+    g.fillRoundedRect(-w / 2, top + edge + 3 * unit, w, faceH, r);
+    g.fillStyle(colors.edge, 1);
+    g.fillRoundedRect(-w / 2, top + edge, w, faceH, r);
+    g.fillStyle(colors.face, 1);
+    g.fillRoundedRect(-w / 2, top + press, w, faceH, r);
+    // Reflet en haut du bouton.
+    const hr = Math.max(1, Math.min(r - 3 * unit, faceH * 0.2));
+    g.fillStyle(0xffffff, this.opts.style === 'secondary' ? 0.6 : 0.2);
+    g.fillRoundedRect(-w / 2 + 5 * unit, top + press + 3 * unit, w - 10 * unit, faceH * 0.38, {
+      tl: hr,
+      tr: hr,
+      bl: hr * 0.5,
+      br: hr * 0.5,
+    });
+    if (this.opts.style === 'secondary') {
+      g.lineStyle(Math.max(1, 1.5 * unit), PALETTE.navy, 0.18);
+      g.strokeRoundedRect(-w / 2, top + press, w, faceH, r);
+    }
+    const cy = top + press + faceH / 2;
     if (this.iconG && this.opts.icon) {
-      this.iconG.clear();
-      if (style === 'toolbar') {
-        const size = Math.min(26 * unit, h * 0.42);
-        drawIcon(this.iconG, this.opts.icon, 0, -h * 0.14 + press, size, iconColor);
-        this.text.setPosition(0, h * 0.26 + press);
-      } else {
-        const size = h * 0.42;
-        const textW = this.text.width;
-        const total = size + 10 * unit + textW;
-        drawIcon(this.iconG, this.opts.icon, -total / 2 + size / 2, press, size, iconColor);
-        this.text.setPosition(-total / 2 + size + 10 * unit + textW / 2, press);
-      }
+      const size = faceH * 0.4;
+      const textW = this.text.width;
+      const total = size + 10 * unit + textW;
+      drawIcon(this.iconG, this.opts.icon, -total / 2 + size / 2, cy, size, colors.icon);
+      this.text.setPosition(-total / 2 + size + 10 * unit + textW / 2, cy);
     } else {
-      this.text.setPosition(0, press);
+      this.text.setPosition(0, cy);
     }
   }
 }
+
+// ---------------------------------------------------------------------------
+// Pastille d'information (score, coups, temps)
+// ---------------------------------------------------------------------------
+
+export class InfoPill extends Phaser.GameObjects.Container {
+  private readonly bg: Phaser.GameObjects.Graphics;
+  private readonly iconG: Phaser.GameObjects.Graphics;
+  private readonly label: Phaser.GameObjects.Text;
+  private popTween: Phaser.Tweens.Tween | null = null;
+  pillWidth = 0;
+  pillHeight = 0;
+
+  constructor(
+    scene: Phaser.Scene,
+    private readonly icon: IconName,
+    private unit: number,
+  ) {
+    super(scene, 0, 0);
+    this.bg = scene.add.graphics();
+    this.iconG = scene.add.graphics();
+    this.label = scene.add
+      .text(0, 0, '', {
+        fontFamily: FONTS.display,
+        fontStyle: '600',
+        fontSize: `${Math.round(17 * unit)}px`,
+        color: CSS.foam,
+      })
+      .setOrigin(0, 0.5);
+    this.add([this.bg, this.iconG, this.label]);
+    scene.add.existing(this);
+  }
+
+  setUnit(unit: number): this {
+    this.unit = unit;
+    this.label.setFontSize(Math.round(17 * unit));
+    this.redraw();
+    return this;
+  }
+
+  get value(): string {
+    return this.label.text;
+  }
+
+  /** Met à jour le texte ; `pop` : petit rebond (valeur qui change). */
+  setValue(text: string, pop = false): this {
+    if (text === this.label.text) return this;
+    this.label.setText(text);
+    this.redraw();
+    if (pop) {
+      this.popTween?.stop();
+      this.setScale(1.14);
+      this.popTween = this.scene.tweens.add({
+        targets: this,
+        scale: 1,
+        duration: 320,
+        ease: 'Back.easeOut',
+      });
+    }
+    return this;
+  }
+
+  private redraw(): void {
+    const u = this.unit;
+    const h = Math.round(this.label.height + 12 * u);
+    const iconSize = h * 0.42;
+    const padL = 12 * u;
+    const gap = 7 * u;
+    const padR = 14 * u;
+    const w = padL + iconSize + gap + this.label.width + padR;
+    this.pillWidth = w;
+    this.pillHeight = h;
+    const g = this.bg;
+    g.clear();
+    g.fillStyle(PALETTE.deep, 0.5);
+    g.fillRoundedRect(-w / 2, -h / 2, w, h, h / 2);
+    g.lineStyle(Math.max(1, 1.2 * u), 0xffffff, 0.22);
+    g.strokeRoundedRect(-w / 2, -h / 2, w, h, h / 2);
+    this.iconG.clear();
+    drawIcon(this.iconG, this.icon, -w / 2 + padL + iconSize / 2, 0, iconSize, PALETTE.gold);
+    this.label.setPosition(-w / 2 + padL + iconSize + gap, 0);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Dialogue modal
+// ---------------------------------------------------------------------------
 
 export interface DialogButton {
   readonly label: string;
@@ -169,40 +337,67 @@ export interface DialogButton {
   readonly onClick: () => void;
 }
 
+export interface DialogStat {
+  readonly label: string;
+  readonly value: number;
+  readonly format?: (value: number) => string;
+}
+
 export interface DialogOptions {
   readonly title: string;
+  readonly subtitle?: string;
   readonly body?: string;
+  /** Chiffres mis en valeur (ils défilent jusqu'à leur valeur). */
+  readonly stats?: readonly DialogStat[];
   readonly buttons: readonly DialogButton[];
   readonly unit: number;
+  /** Ambiance de fête : étincelles autour du titre. */
+  readonly celebrate?: boolean;
   /** Tap hors du panneau : si défini, ferme le dialogue. */
   readonly onDismiss?: () => void;
 }
 
-/** Dialogue modal centré : voile, panneau clair, titre, texte et boutons empilés. */
+/** Dialogue modal centré : voile, panneau qui rebondit, titre, texte, chiffres et boutons. */
 export class Dialog extends Phaser.GameObjects.Container {
+  private readonly panel: Phaser.GameObjects.Container;
+  private readonly veil: Phaser.GameObjects.Rectangle;
+
   constructor(scene: Phaser.Scene, opts: DialogOptions) {
     super(scene, 0, 0);
     const { width: W, height: H } = scene.scale;
     const u = opts.unit;
-    const veil = scene.add.rectangle(0, 0, W, H, 0x081e26, 0.66).setOrigin(0, 0);
-    veil.setInteractive();
-    veil.on('pointerup', (pointer: Phaser.Input.Pointer) => {
+    this.veil = scene.add.rectangle(0, 0, W, H, 0x06202b, 0.62).setOrigin(0, 0);
+    this.veil.setInteractive();
+    this.veil.on('pointerup', (pointer: Phaser.Input.Pointer) => {
       if (opts.onDismiss && isTap(pointer, u)) opts.onDismiss();
     });
-    this.add(veil);
+    this.add(this.veil);
 
-    const panelW = Math.min(W - 32 * u, 380 * u);
-    const pad = 22 * u;
+    const panelW = Math.min(W - 32 * u, 400 * u);
+    const pad = 24 * u;
+    const innerW = panelW - pad * 2;
     const title = scene.add
       .text(0, 0, opts.title, {
-        fontFamily: FONTS.title,
-        fontSize: `${Math.round(24 * u)}px`,
+        fontFamily: FONTS.display,
+        fontSize: `${Math.round((opts.celebrate ? 36 : 28) * u)}px`,
         color: CSS.navy,
-        fontStyle: 'bold',
+        fontStyle: '700',
         align: 'center',
-        wordWrap: { width: panelW - pad * 2 },
+        wordWrap: { width: innerW },
       })
       .setOrigin(0.5, 0);
+    const subtitle = opts.subtitle
+      ? scene.add
+          .text(0, 0, opts.subtitle, {
+            fontFamily: FONTS.display,
+            fontSize: `${Math.round(18 * u)}px`,
+            fontStyle: '500',
+            color: CSS.turquoise,
+            align: 'center',
+            wordWrap: { width: innerW },
+          })
+          .setOrigin(0.5, 0)
+      : null;
     const body = opts.body
       ? scene.add
           .text(0, 0, opts.body, {
@@ -211,49 +406,70 @@ export class Dialog extends Phaser.GameObjects.Container {
             color: CSS.text,
             align: 'center',
             lineSpacing: 4 * u,
-            wordWrap: { width: panelW - pad * 2 },
+            wordWrap: { width: innerW },
           })
           .setOrigin(0.5, 0)
       : null;
-    const buttonH = 54 * u;
+    const stats = opts.stats ?? [];
+    const statH = stats.length > 0 ? 70 * u : 0;
+    const buttonH = 58 * u;
     const buttonGap = 12 * u;
-    const band = 6 * u;
-    let contentH = band + pad + title.height + (body ? 12 * u + body.height : 0) + 20 * u;
+    const band = 12 * u;
+    let contentH = band + pad + title.height;
+    if (subtitle) contentH += 4 * u + subtitle.height;
+    if (body) contentH += 12 * u + body.height;
+    if (statH) contentH += 16 * u + statH;
+    contentH += 22 * u;
     contentH += opts.buttons.length * buttonH + (opts.buttons.length - 1) * buttonGap + pad;
     const panelH = Math.min(contentH, H - 24 * u);
-    const px = W / 2;
-    const py = H / 2 - panelH / 2;
 
-    const panel = scene.add.graphics();
-    panel.fillStyle(0x000000, 0.25);
-    panel.fillRoundedRect(px - panelW / 2, py + 6 * u, panelW, panelH, 20 * u);
-    panel.fillStyle(PALETTE.foam, 1);
-    panel.fillRoundedRect(px - panelW / 2, py, panelW, panelH, 20 * u);
-    panel.fillStyle(PALETTE.turquoise, 1);
-    panel.fillRoundedRect(px - panelW / 2, py, panelW, band, {
-      tl: 20 * u,
-      tr: 20 * u,
-      bl: 0,
-      br: 0,
-    });
+    // Le panneau est dessiné autour de (0, 0) pour pouvoir rebondir sur place.
+    const panel = scene.add.container(W / 2, H / 2);
+    this.panel = panel;
+    const top = -panelH / 2;
+    const left = -panelW / 2;
+    const bg = scene.add.graphics();
+    bg.fillStyle(0x000000, 0.28);
+    bg.fillRoundedRect(left, top + 8 * u, panelW, panelH, 26 * u);
+    bg.fillStyle(PALETTE.foam, 1);
+    bg.fillRoundedRect(left, top, panelW, panelH, 26 * u);
+    // Bandeau turquoise ondulé en haut du panneau.
+    bg.fillStyle(PALETTE.turquoise, 1);
+    bg.fillRoundedRect(left, top, panelW, band + 8 * u, { tl: 26 * u, tr: 26 * u, bl: 0, br: 0 });
+    bg.fillStyle(PALETTE.foam, 1);
+    const waveR = 7 * u;
+    for (let x = left + waveR; x < left + panelW; x += waveR * 2) {
+      bg.fillCircle(x, top + band + 8 * u, waveR);
+    }
     // Le panneau absorbe les taps (ils ne ferment pas le dialogue).
-    const blocker = scene.add.zone(px, py + panelH / 2, panelW, panelH).setInteractive();
-    this.add([panel, blocker]);
+    const blocker = scene.add.zone(0, 0, panelW, panelH).setInteractive();
+    panel.add([bg, blocker]);
 
-    let y = py + band + pad;
-    title.setPosition(px, y);
-    this.add(title);
+    let y = top + band + pad;
+    title.setPosition(0, y);
+    panel.add(title);
     y += title.height;
+    if (subtitle) {
+      y += 4 * u;
+      subtitle.setPosition(0, y);
+      panel.add(subtitle);
+      y += subtitle.height;
+    }
     if (body) {
       y += 12 * u;
-      body.setPosition(px, y);
-      this.add(body);
+      body.setPosition(0, y);
+      panel.add(body);
       y += body.height;
     }
-    y += 20 * u;
-    for (const spec of opts.buttons) {
-      const button = new Button(scene, px, y + buttonH / 2, {
-        width: panelW - pad * 2,
+    if (statH) {
+      y += 16 * u;
+      this.addStats(panel, stats, left + pad, y, innerW, statH, u);
+      y += statH;
+    }
+    y += 22 * u;
+    opts.buttons.forEach((spec, i) => {
+      const button = new Button(scene, 0, y + buttonH / 2, {
+        width: innerW,
         height: buttonH,
         label: spec.label,
         icon: spec.icon,
@@ -261,26 +477,147 @@ export class Dialog extends Phaser.GameObjects.Container {
         unit: u,
         onClick: spec.onClick,
       });
-      this.add(button);
+      panel.add(button);
+      // Les boutons arrivent l'un après l'autre.
+      button.setAlpha(0);
+      scene.tweens.add({
+        targets: button,
+        alpha: 1,
+        y: { from: button.y + 14 * u, to: button.y },
+        duration: 260,
+        delay: 160 + i * 70,
+        ease: 'Back.easeOut',
+      });
       y += buttonH + buttonGap;
-    }
+    });
+
+    if (opts.celebrate) this.addSparkles(panel, title, u);
+
+    this.add(panel);
     this.setDepth(50_000);
     scene.add.existing(this);
-    this.setAlpha(0);
-    scene.tweens.add({ targets: this, alpha: 1, duration: 160 });
+    this.veil.setAlpha(0);
+    scene.tweens.add({ targets: this.veil, alpha: 1, duration: 220 });
+    panel.setScale(0.82).setAlpha(0);
+    panel.y += 36 * u;
+    scene.tweens.add({
+      targets: panel,
+      scale: 1,
+      alpha: 1,
+      y: H / 2,
+      duration: 380,
+      ease: 'Back.easeOut',
+    });
+    audio.play('pop', { pitch: 0.9 });
+  }
+
+  private addStats(
+    panel: Phaser.GameObjects.Container,
+    stats: readonly DialogStat[],
+    x0: number,
+    y0: number,
+    width: number,
+    height: number,
+    u: number,
+  ): void {
+    const scene = this.scene;
+    const n = stats.length;
+    const cellW = width / n;
+    const g = scene.add.graphics();
+    g.fillStyle(PALETTE.turquoise, 0.1);
+    g.fillRoundedRect(x0, y0, width, height, 16 * u);
+    panel.add(g);
+    stats.forEach((stat, i) => {
+      const cx = x0 + cellW * (i + 0.5);
+      const label = scene.add
+        .text(cx, y0 + 12 * u, stat.label.toUpperCase(), {
+          fontFamily: FONTS.ui,
+          fontSize: `${Math.round(12 * u)}px`,
+          fontStyle: '700',
+          color: CSS.muted,
+        })
+        .setOrigin(0.5, 0);
+      label.setLetterSpacing(1.5 * u);
+      const format = stat.format ?? ((v: number) => String(Math.round(v)));
+      const value = scene.add
+        .text(cx, y0 + height - 10 * u, format(0), {
+          fontFamily: FONTS.display,
+          fontSize: `${Math.round(26 * u)}px`,
+          fontStyle: '700',
+          color: CSS.navy,
+        })
+        .setOrigin(0.5, 1);
+      panel.add([label, value]);
+      scene.tweens.addCounter({
+        from: 0,
+        to: stat.value,
+        duration: 900,
+        delay: 250 + i * 120,
+        ease: 'Cubic.easeOut',
+        onUpdate: (tw) => value.setText(format(tw.getValue() ?? stat.value)),
+        onComplete: () => {
+          value.setText(format(stat.value));
+          scene.tweens.add({
+            targets: value,
+            scale: { from: 1.25, to: 1 },
+            duration: 300,
+            ease: 'Back.easeOut',
+          });
+        },
+      });
+    });
+  }
+
+  private addSparkles(
+    panel: Phaser.GameObjects.Container,
+    title: Phaser.GameObjects.Text,
+    u: number,
+  ): void {
+    if (!this.scene.textures.exists(FX.sparkleGold)) return;
+    const cx = title.x;
+    const cy = title.y + title.height / 2;
+    const rx = title.width / 2 + 26 * u;
+    const ry = title.height / 2 + 6 * u;
+    for (let i = 0; i < 6; i++) {
+      const a = (i / 6) * Math.PI * 2 + 0.4;
+      const s = this.scene.add
+        .image(cx + Math.cos(a) * rx, cy + Math.sin(a) * ry, FX.sparkleGold)
+        .setScale(0)
+        .setBlendMode(Phaser.BlendModes.NORMAL);
+      panel.add(s);
+      this.scene.tweens.add({
+        targets: s,
+        scale: { from: 0, to: 0.9 + (i % 3) * 0.25 },
+        angle: 90,
+        duration: 520,
+        delay: 300 + i * 110,
+        yoyo: true,
+        repeat: -1,
+        repeatDelay: 600 + i * 90,
+        ease: 'Sine.easeInOut',
+      });
+    }
   }
 
   close(): void {
+    this.disableInteractive();
+    this.veil.disableInteractive();
+    this.panel.each((child: Phaser.GameObjects.GameObject) => child.disableInteractive());
+    this.scene.tweens.add({ targets: this.veil, alpha: 0, duration: 160 });
     this.scene.tweens.add({
-      targets: this,
+      targets: this.panel,
       alpha: 0,
-      duration: 120,
+      scale: 0.92,
+      duration: 150,
+      ease: 'Quad.easeIn',
       onComplete: () => this.destroy(),
     });
-    this.disableInteractive();
-    this.each((child: Phaser.GameObjects.GameObject) => child.disableInteractive());
   }
 }
+
+// ---------------------------------------------------------------------------
+// Sélecteur segmenté (réglages)
+// ---------------------------------------------------------------------------
 
 export interface SegmentOption<T> {
   readonly value: T;
@@ -317,8 +654,8 @@ export class Segmented<T> extends Phaser.GameObjects.Container {
     const u = opts.unit;
     this.value = opts.value;
     const label = scene.add.text(0, 0, opts.label, {
-      fontFamily: FONTS.ui,
-      fontSize: `${Math.round(16 * u)}px`,
+      fontFamily: FONTS.display,
+      fontSize: `${Math.round(18 * u)}px`,
       fontStyle: '600',
       color: CSS.foam,
     });
@@ -334,7 +671,7 @@ export class Segmented<T> extends Phaser.GameObjects.Container {
       this.add(hint);
       y0 += hint.height + 4 * u;
     }
-    const pillH = 46 * u;
+    const pillH = 48 * u;
     const gap = 8 * u;
     const n = opts.options.length;
     const pillW = (opts.width - gap * (n - 1)) / n;
@@ -343,9 +680,9 @@ export class Segmented<T> extends Phaser.GameObjects.Container {
       const g = scene.add.graphics();
       const text = scene.add
         .text(px + pillW / 2, y0 + pillH / 2, option.label, {
-          fontFamily: FONTS.ui,
-          fontSize: `${Math.round(16 * u)}px`,
-          fontStyle: '700',
+          fontFamily: FONTS.display,
+          fontSize: `${Math.round(17 * u)}px`,
+          fontStyle: '600',
           color: CSS.foam,
         })
         .setOrigin(0.5, 0.5);
@@ -357,6 +694,12 @@ export class Segmented<T> extends Phaser.GameObjects.Container {
         this.value = option.value;
         audio.play('click');
         this.redraw(pillW, pillH, y0);
+        scene.tweens.add({
+          targets: text,
+          scale: { from: 1.18, to: 1 },
+          duration: 280,
+          ease: 'Back.easeOut',
+        });
         opts.onChange(option.value);
       });
       this.pills.push({ g, text, value: option.value });
@@ -373,13 +716,20 @@ export class Segmented<T> extends Phaser.GameObjects.Container {
       const selected = pill.value === this.value;
       const px = i * (pillW + 8 * u);
       pill.g.clear();
-      pill.g.fillStyle(selected ? PALETTE.foam : 0xffffff, selected ? 1 : 0.1);
-      pill.g.fillRoundedRect(px, y0, pillW, pillH, pillH / 2);
-      if (!selected) {
-        pill.g.lineStyle(Math.max(1, 1.5 * u), PALETTE.sand, 0.45);
+      if (selected) {
+        pill.g.fillStyle(PALETTE.turquoiseDark, 1);
+        pill.g.fillRoundedRect(px, y0 + 3 * u, pillW, pillH, pillH / 2);
+        pill.g.fillStyle(PALETTE.turquoise, 1);
+        pill.g.fillRoundedRect(px, y0, pillW, pillH, pillH / 2);
+        pill.g.fillStyle(0xffffff, 0.18);
+        pill.g.fillRoundedRect(px + 6 * u, y0 + 3 * u, pillW - 12 * u, pillH * 0.36, pillH * 0.18);
+      } else {
+        pill.g.fillStyle(0xffffff, 0.08);
+        pill.g.fillRoundedRect(px, y0, pillW, pillH, pillH / 2);
+        pill.g.lineStyle(Math.max(1, 1.5 * u), PALETTE.sand, 0.4);
         pill.g.strokeRoundedRect(px, y0, pillW, pillH, pillH / 2);
       }
-      pill.text.setColor(selected ? CSS.navy : CSS.foam);
+      pill.text.setColor(selected ? CSS.foam : CSS.sand);
     });
   }
 }

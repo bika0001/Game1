@@ -63,7 +63,9 @@ export class SettingsScene extends Phaser.Scene {
     const safe = safeInsets(dpr);
     const s = app.settings;
 
-    this.add.rectangle(0, 0, W, H, 0x0b2f3a, 1).setOrigin(0, 0);
+    const bg = this.add.graphics();
+    bg.fillGradientStyle(0x0e4a5a, 0x0e4a5a, 0x082632, 0x082632, 1, 1, 1, 1);
+    bg.fillRect(0, 0, W, H);
 
     // En-tête fixe.
     const headerH = safe.top + 64 * u;
@@ -76,10 +78,10 @@ export class SettingsScene extends Phaser.Scene {
     let y = 0;
     const section = (title: string): void => {
       const text = this.add.text(0, y, title.toUpperCase(), {
-        fontFamily: FONTS.ui,
-        fontSize: `${Math.round(13 * u)}px`,
-        fontStyle: '700',
-        color: CSS.turquoise,
+        fontFamily: FONTS.display,
+        fontSize: `${Math.round(15 * u)}px`,
+        fontStyle: '600',
+        color: CSS.gold,
       });
       text.setLetterSpacing(2 * u);
       content.add(text);
@@ -148,14 +150,21 @@ export class SettingsScene extends Phaser.Scene {
     content.add(note);
     y += note.height + 26 * u;
 
-    section(t('settings.comfort'));
-    onOff('leftHanded', t('settings.leftHanded'));
-    onOff('sound', t('settings.sound'));
-    onOff('haptics', t('settings.haptics'));
+    section(t('settings.display'));
+    choice('decor', t('settings.decor'), [
+      { value: 'lagoon', label: t('settings.lagoon') },
+      { value: 'classic', label: t('settings.classic') },
+    ]);
     choice('reducedMotion', t('settings.animations'), [
       { value: false, label: t('settings.normal') },
       { value: true, label: t('settings.reduced') },
     ]);
+    onOff('leftHanded', t('settings.leftHanded'));
+    y += 8 * u;
+
+    section(t('settings.comfort'));
+    onOff('sound', t('settings.sound'));
+    onOff('haptics', t('settings.haptics'));
     choice(
       'locale',
       t('settings.language'),
@@ -173,16 +182,20 @@ export class SettingsScene extends Phaser.Scene {
 
     // En-tête par-dessus le contenu (il bloque les taps sur le contenu masqué).
     const header = this.add.graphics();
-    header.fillStyle(PALETTE.navy, 1);
+    header.fillStyle(PALETTE.deep, 1);
     header.fillRect(0, 0, W, headerH);
     header.fillStyle(PALETTE.turquoise, 1);
-    header.fillRect(0, headerH - 3 * u, W, 3 * u);
+    header.fillRect(0, headerH - 4 * u, W, 4 * u);
+    // Petites crêtes de vagues sous l'en-tête.
+    for (let x = 0; x < W + 12 * u; x += 16 * u) {
+      header.fillCircle(x, headerH - 4 * u, 5 * u);
+    }
     this.add.zone(0, 0, W, headerH).setOrigin(0, 0).setInteractive();
     this.add
       .text(W / 2, safe.top + 32 * u, t('settings.title'), {
-        fontFamily: FONTS.title,
-        fontSize: `${Math.round(24 * u)}px`,
-        fontStyle: 'bold',
+        fontFamily: FONTS.display,
+        fontSize: `${Math.round(26 * u)}px`,
+        fontStyle: '700',
         color: CSS.foam,
       })
       .setOrigin(0.5, 0.5);

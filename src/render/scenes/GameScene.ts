@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { ANIM, CARD, REDUCED_MOTION_FACTOR } from '../../config/theme';
+import { ANIM, CARD, CSS, PALETTE, REDUCED_MOTION_FACTOR } from '../../config/theme';
 import {
   klondike,
   timeBonus,
@@ -7,25 +7,32 @@ import {
   type KlondikeRecord,
 } from '../../core/games/klondike';
 import type { PileSnapshot } from '../../core/games/types';
-import type { Settings } from '../../core/settings';
-import { rankLabels, t } from '../../i18n';
+import type { DecorId, Settings } from '../../core/settings';
+import { t } from '../../i18n';
 import { audio } from '../../services/audio';
 import { haptics } from '../../services/haptics';
 import { analytics } from '../../services/analytics';
 import { app, type KlondikeSession } from '../app';
-import { generateCardTextures, TEX, type CardMetrics } from '../cardart/textures';
-import {
-  cardPositions,
-  computeKlondikeLayout,
-  type KlondikeLayout,
-  type Rect,
-} from '../layout/klondikeLayout';
+import { TEX, type CardMetrics } from '../cardart/textures';
+import { createDecor, type Decor } from '../decor/decors';
+import { ensureFxTextures } from '../decor/fxTextures';
+import { cardTexturesFor, floorBottomFor, klondikeLayoutFor } from '../gameSetup';
+import { cardPositions, type KlondikeLayout, type Rect } from '../layout/klondikeLayout';
 import { CardView } from '../objects/CardView';
-import { addGlow, playWinAnimation, resetCardAppearance, showToast } from '../objects/Effects';
-import { Button, Dialog, type DialogButton } from '../ui/widgets';
-import { devicePixelRatio, safeInsets } from '../viewport';
+import {
+  addGlow,
+  flashSlot,
+  floatText,
+  FX_DEPTH,
+  ripple,
+  showToast,
+  sparkleBurst,
+  WinCelebration,
+} from '../objects/Effects';
+import { initialQuality, QualityMonitor } from '../quality';
+import { Button, Dialog, InfoPill, type DialogButton, type DialogStat } from '../ui/widgets';
+import { devicePixelRatio } from '../viewport';
 import { formatTime } from '../format';
-import { ensureTableImage } from './tableBackground';
 
 type GameMode = 'continue' | 'new';
 
@@ -42,7 +49,32 @@ interface DragState {
   readonly grabDX: number;
   readonly grabDY: number;
   readonly targets: readonly string[];
-  readonly glows: Phaser.GameObjects.Image[];
+  readonly glows: Map<string, Phaser.GameObjects.Image>;
+  pointerX: number;
+  pointerY: number;
+  tilt: number;
+  hover: string | null;
+}
+
+/** Nature d'une mise à jour de l'affichage : elle décide du style des vols. */
+type SyncKind = 'instant' | 'deal' | 'play' | 'drop' | 'undo' | 'cascade';
+
+interface SyncOptions {
+  readonly kind: SyncKind;
+  /** Points gagnés ou perdus, affichés à l'arrivée sur la pile `focus`. */
+  readonly scoreDelta?: number;
+  readonly focus?: string;
+}
+
+interface Flight {
+  readonly view: CardView;
+  readonly pile: PileSnapshot;
+  readonly index: number;
+  readonly x: number;
+  readonly y: number;
+  readonly faceUp: boolean;
+  /** Recouverte à l'arrivée par la carte suivante (pioche, fondation). */
+  readonly covered: boolean;
 }
 
 type ToolbarKey = 'menu' | 'settings' | 'new' | 'hint' | 'undo';
@@ -50,6 +82,9 @@ type ToolbarKey = 'menu' | 'settings' | 'new' | 'hint' | 'undo';
 const REST_DEPTH = 100;
 const FLY_DEPTH = 10_000;
 const DRAG_DEPTH = 25_000;
+const RIPPLE_DEPTH = 50;
+/** Fenêtre pendant laquelle des cartes posées sur les fondations forment une série (sons qui montent). */
+const COMBO_WINDOW_MS = 3500;
 
 export class GameScene extends Phaser.Scene {
   private session: KlondikeSession | null = null;
@@ -58,13 +93,16 @@ export class GameScene extends Phaser.Scene {
   private metrics!: CardMetrics;
   private dpr = 1;
 
-  private table!: Phaser.GameObjects.Image;
-  private toolbarBg!: Phaser.GameObjects.Graphics;
+  private decor: Decor | null = null;
+  private decorId: DecorId | null = null;
+  private quality!: QualityMonitor;
+  private toolbarShade!: Phaser.GameObjects.Graphics;
   private readonly slots = new Map<string, Phaser.GameObjects.Image>();
   private cards: CardView[] = [];
-  private info!: Phaser.GameObjects.Text;
+  private pills!: { score: InfoPill; moves: InfoPill; time: InfoPill };
   private buttons!: Record<ToolbarKey, Button>;
   private finishButton!: Button;
+  private finishPulse: Phaser.Tweens.Tween | null = null;
 
   private hintObjects: Phaser.GameObjects.GameObject[] = [];
   private hintTimer: Phaser.Time.TimerEvent | null = null;
@@ -76,10 +114,12 @@ export class GameScene extends Phaser.Scene {
   private cascading = false;
   private cascadeQueue: KlondikeMove[] = [];
   private cascadeTimer: Phaser.Time.TimerEvent | null = null;
-  private winFx: { skip: () => void } | null = null;
+  private celebration: WinCelebration | null = null;
   private won = false;
   private blockedDismissed = -1;
   private hintPending = false;
+  private combo = 0;
+  private lastFoundationAt = -Infinity;
   private pointer: {
     id: number;
     x: number;
@@ -87,8 +127,11 @@ export class GameScene extends Phaser.Scene {
     hit: Hit | null;
     draggable: boolean;
   } | null = null;
+  /** Cartes légèrement soulevées sous le doigt (retour immédiat au toucher). */
+  private pressed: CardView[] = [];
   private drag: DragState | null = null;
   private unsubscribe: (() => void) | null = null;
+  private leaving = false;
 
   constructor() {
     super('Game');
@@ -100,15 +143,22 @@ export class GameScene extends Phaser.Scene {
     this.won = false;
     this.cascading = false;
     this.cascadeQueue = [];
-    this.winFx = null;
+    this.celebration = null;
     this.dialog = null;
     this.dialogBuilder = null;
     this.drag = null;
     this.pointer = null;
+    this.pressed = [];
     this.hintPending = false;
     this.hintObjects = [];
     this.cards = [];
     this.slots.clear();
+    this.decor = null;
+    this.decorId = null;
+    this.combo = 0;
+    this.lastFoundationAt = -Infinity;
+    this.leaving = false;
+    this.finishPulse = null;
   }
 
   private get speed(): number {
@@ -126,8 +176,14 @@ export class GameScene extends Phaser.Scene {
   create(): void {
     this.dpr = devicePixelRatio();
     this.computeLayout();
-    this.table = ensureTableImage(this);
-    this.toolbarBg = this.add.graphics().setDepth(5);
+    ensureFxTextures(this, this.dpr);
+    this.quality = new QualityMonitor(
+      (level) => this.decor?.setQuality(level),
+      app.settings.reducedMotion ? 0 : 2,
+      initialQuality(),
+    );
+    this.buildDecor();
+    this.toolbarShade = this.add.graphics().setDepth(5);
 
     for (const id of [
       'stock',
@@ -153,16 +209,12 @@ export class GameScene extends Phaser.Scene {
       this.cards.push(view);
     }
 
-    this.info = this.add
-      .text(0, 0, '', {
-        fontFamily: '"Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
-        fontSize: '16px',
-        color: '#FAFAF7',
-        fontStyle: '600',
-      })
-      .setOrigin(0.5, 0.5)
-      .setDepth(6)
-      .setAlpha(0.92);
+    const u = this.layout.unit;
+    this.pills = {
+      score: new InfoPill(this, 'star', u).setDepth(6),
+      moves: new InfoPill(this, 'moves', u).setDepth(6),
+      time: new InfoPill(this, 'clock', u).setDepth(6),
+    };
 
     this.buildButtons();
     this.layoutAll();
@@ -179,40 +231,46 @@ export class GameScene extends Phaser.Scene {
       this.scale.off('resize', this.onResize, this);
       this.events.off(Phaser.Scenes.Events.RESUME, onResume);
       this.unsubscribe?.();
+      this.decor?.destroy();
+      this.decor = null;
       app.setActiveSession(null);
     });
 
+    this.cameras.main.fadeIn(320, 6, 32, 43);
     void this.loadSession();
   }
 
   private computeLayout(): void {
-    this.layout = computeKlondikeLayout({
+    this.layout = klondikeLayoutFor(this, this.dpr, this.drawCount);
+    this.metrics = cardTexturesFor(this, this.layout);
+  }
+
+  /** Crée (ou redessine à la bonne taille) le décor choisi dans les réglages. */
+  private buildDecor(): void {
+    const id = app.settings.decor;
+    if (!this.decor || this.decorId !== id) {
+      this.decor?.destroy();
+      this.decor = createDecor(this, id);
+      this.decorId = id;
+    }
+    this.decor.build({
       width: this.scale.width,
       height: this.scale.height,
       dpr: this.dpr,
-      safe: safeInsets(this.dpr),
-      leftHanded: app.settings.leftHanded,
-      drawCount: this.drawCount,
-      bannerHeight: 0,
-      uiScale: 1,
+      floorBottom: floorBottomFor(this, this.layout, this.dpr),
     });
-    const labels = rankLabels();
-    this.metrics = generateCardTextures(this, this.layout.cardW, this.layout.cardH, {
-      rankLabels: labels,
-      back: 'waves',
-      aceLabel: labels[0] ?? 'A',
-    });
+    this.decor.setQuality(this.quality.current);
   }
 
   private buildButtons(): void {
     const u = this.layout.unit;
-    const make = (icon: ToolbarKey, label: string, onClick: () => void) =>
+    const make = (icon: ToolbarKey, label: string, onClick: () => void, accent = false) =>
       new Button(this, 0, 0, {
         width: 80 * u,
-        height: 60 * u,
+        height: 70 * u,
         label,
         icon,
-        style: 'toolbar',
+        style: accent ? 'toolbarAccent' : 'toolbar',
         unit: u,
         onClick,
       }).setDepth(7);
@@ -221,11 +279,11 @@ export class GameScene extends Phaser.Scene {
       settings: make('settings', t('game.settings'), () => this.openSettings()),
       new: make('new', t('game.new'), () => this.askNewGame()),
       hint: make('hint', t('game.hint'), () => void this.requestHint()),
-      undo: make('undo', t('game.undo'), () => this.undo()),
+      undo: make('undo', t('game.undo'), () => this.undo(), true),
     };
     this.finishButton = new Button(this, 0, 0, {
-      width: 180 * u,
-      height: 52 * u,
+      width: 190 * u,
+      height: 58 * u,
       label: t('game.finish'),
       icon: 'finish',
       style: 'accent',
@@ -235,10 +293,12 @@ export class GameScene extends Phaser.Scene {
       // Au-dessus des cartes posées (une longue colonne peut passer dessous), sous les cartes en vol.
       .setDepth(FLY_DEPTH - 1)
       .setVisible(false);
+    this.finishPulse = null;
   }
 
   private rebuildButtons(): void {
     for (const b of Object.values(this.buttons)) b.destroy();
+    this.finishPulse?.stop();
     this.finishButton.destroy();
     this.buildButtons();
   }
@@ -253,22 +313,33 @@ export class GameScene extends Phaser.Scene {
       const p = this.layout.piles[id];
       if (p) slot.setPosition(p.x + cardW / 2, p.y + cardH / 2);
     }
-    this.slots.get('waste')?.setAlpha(0.55);
+    this.slots.get('waste')?.setAlpha(0.6);
 
-    const { toolbar, infoBar, unit: u } = this.layout;
-    this.toolbarBg.clear();
-    this.toolbarBg.fillStyle(0x06222b, 0.42);
-    this.toolbarBg.fillRect(
-      toolbar.x,
-      toolbar.y,
-      toolbar.w,
-      toolbar.vertical ? toolbar.h : this.scale.height - toolbar.y,
-    );
+    const { toolbar, unit: u } = this.layout;
+    const W = this.scale.width;
+    const H = this.scale.height;
+    // Voile dégradé sous la barre d'outils : les libellés restent lisibles sur le décor.
+    this.toolbarShade.clear();
+    const deep = PALETTE.deep;
+    if (toolbar.vertical) {
+      const fade = 36 * u;
+      const onLeft = toolbar.x < W / 2;
+      const x = onLeft ? 0 : toolbar.x - fade;
+      const w = onLeft ? toolbar.x + toolbar.w + fade : W - x;
+      const a0 = onLeft ? 0.5 : 0;
+      const a1 = onLeft ? 0 : 0.5;
+      this.toolbarShade.fillGradientStyle(deep, deep, deep, deep, a0, a1, a0, a1);
+      this.toolbarShade.fillRect(x, 0, w, H);
+    } else {
+      const top = toolbar.y - 28 * u;
+      this.toolbarShade.fillGradientStyle(deep, deep, deep, deep, 0, 0, 0.55, 0.55);
+      this.toolbarShade.fillRect(0, top, W, H - top);
+    }
 
     const order: ToolbarKey[] = ['menu', 'settings', 'new', 'hint', 'undo'];
     if (app.settings.leftHanded && !toolbar.vertical) order.reverse();
     if (toolbar.vertical) {
-      const span = Math.min(toolbar.h - 24 * u, order.length * 96 * u);
+      const span = Math.min(toolbar.h - 24 * u, order.length * 100 * u);
       const bh = span / order.length;
       const y0 = toolbar.y + (toolbar.h - span) / 2;
       order.forEach((key, i) =>
@@ -287,19 +358,19 @@ export class GameScene extends Phaser.Scene {
       );
     }
     const fb = this.layout.finishButton;
-    this.finishButton.setPosition(fb.x + fb.w / 2, fb.y + fb.h / 2).resize(fb.w, fb.h);
+    this.finishButton.setPosition(fb.x + fb.w / 2, fb.y + fb.h / 2).resize(fb.w, fb.h + 6 * u);
 
-    this.info.setFontSize(Math.round(16 * u));
-    this.info.setPosition(infoBar.x + infoBar.w / 2, infoBar.y + infoBar.h / 2);
+    for (const pill of Object.values(this.pills)) pill.setUnit(u);
     this.refreshInfo(true);
   }
 
   /** Recalcule la mise en page et met à jour tout l'affichage (taille des cartes comprise). */
   private relayout(): void {
     this.computeLayout();
+    ensureFxTextures(this, this.dpr);
     for (const view of this.cards) view.setMetrics(this.metrics);
     for (const slot of this.slots.values()) slot.setTexture(slot.texture.key);
-    ensureTableImage(this, this.table);
+    this.buildDecor();
     this.rebuildButtons();
     this.layoutAll();
   }
@@ -307,23 +378,28 @@ export class GameScene extends Phaser.Scene {
   private onResize(): void {
     this.dpr = devicePixelRatio();
     this.cancelDrag();
+    this.releasePress();
     this.clearHint();
     this.relayout();
-    if (this.winFx) this.winFx.skip();
-    this.sync(false);
+    this.celebration?.skip();
+    this.sync({ kind: 'instant' });
     if (this.dialogBuilder) {
       this.dialog?.destroy();
       this.dialog = this.dialogBuilder();
     }
   }
 
-  private onSettingsChanged(_settings: Settings, changed: ReadonlyArray<keyof Settings>): void {
+  private onSettingsChanged(settings: Settings, changed: ReadonlyArray<keyof Settings>): void {
     if (changed.some((k) => k === 'leftHanded' || k === 'locale')) {
       this.relayout();
-      this.sync(false);
-    } else if (changed.some((k) => k === 'scoring' || k === 'showTimer')) {
-      this.refreshInfo(true);
+      this.sync({ kind: 'instant' });
+    } else if (changed.includes('decor')) {
+      this.buildDecor();
     }
+    if (changed.includes('reducedMotion')) {
+      this.quality.setMax(settings.reducedMotion ? 0 : 2);
+    }
+    if (changed.some((k) => k === 'scoring' || k === 'showTimer')) this.refreshInfo(true);
   }
 
   // ---------------------------------------------------------------------------
@@ -348,15 +424,17 @@ export class GameScene extends Phaser.Scene {
     this.cascadeQueue = [];
     this.version++;
     this.blockedDismissed = -1;
+    this.combo = 0;
     this.closeDialog();
     this.clearHint();
-    this.winFx?.skip();
-    this.winFx = null;
+    this.celebration?.skip();
+    this.celebration = null;
     // La place réservée à l'éventail de la défausse dépend du mode de pioche.
     this.relayout();
     const stock = this.layout.piles.stock;
     for (const view of this.cards) {
-      resetCardAppearance(view);
+      view.resetAppearance();
+      view.setVisible(true);
       if (deal && stock) {
         view.setFace(false);
         view.placeAt(stock.x, stock.y);
@@ -364,10 +442,10 @@ export class GameScene extends Phaser.Scene {
       }
     }
     if (deal) {
-      audio.play('deal');
-      this.sync(true, true);
+      audio.play('whoosh');
+      this.sync({ kind: 'deal' });
     } else {
-      this.sync(false);
+      this.sync({ kind: 'instant' });
       this.checkBlocked();
     }
   }
@@ -377,10 +455,11 @@ export class GameScene extends Phaser.Scene {
   // ---------------------------------------------------------------------------
 
   private moveDuration(distance: number): number {
-    const base = ANIM.move * (0.65 + distance / (this.layout.cardH * 5));
+    const base = ANIM.move * (0.7 + distance / (this.layout.cardH * 6));
     return Math.min(ANIM.moveMax, base) / this.speed;
   }
 
+  /** Ordre de distribution : rangée par rangée, de gauche à droite, comme à la main. */
   private dealDelay(pile: PileSnapshot, index: number): number {
     if (pile.kind !== 'tableau') return 0;
     let order = 0;
@@ -389,41 +468,198 @@ export class GameScene extends Phaser.Scene {
     return (order * ANIM.dealStagger) / this.speed;
   }
 
-  /** Aligne chaque carte sur l'état du jeu (avec ou sans animation). */
-  private sync(animate: boolean, deal = false): void {
+  /** Aligne chaque carte sur l'état du jeu, avec des vols animés selon la nature du changement. */
+  private sync(opts: SyncOptions): void {
     const session = this.session;
     if (!session) return;
-    let flight = 0;
+    const animate = opts.kind !== 'instant';
+    const flights: Flight[] = [];
     for (const pile of klondike.piles(session.state)) {
       const positions = cardPositions(this.layout, pile.id, pile.cards, this.drawCount);
       pile.cards.forEach((face, i) => {
         const view = this.cards[face.card] as CardView;
         const pos = positions[i] as { x: number; y: number };
-        const rest = REST_DEPTH + i;
+        const next = positions[i + 1];
+        const covered = !!next && next.x === pos.x && next.y === pos.y;
         const moving = !view.isMovingTo(pos.x, pos.y);
         if (animate && moving) {
-          const duration = this.moveDuration(Math.hypot(pos.x - view.left, pos.y - view.top));
-          const delay = deal ? this.dealDelay(pile, i) : 0;
-          view.setDepth(FLY_DEPTH + flight++);
-          view.moveTo(pos.x, pos.y, duration, delay, () => view.setDepth(rest));
-          if (face.faceUp !== view.faceUp) {
-            view.setFace(face.faceUp, ANIM.flip / this.speed, deal ? delay + duration * 0.7 : 0);
-          }
-        } else {
-          if (!animate || moving) view.placeAt(pos.x, pos.y);
-          if (!view.isMoving) view.setDepth(rest);
-          if (face.faceUp !== view.faceUp) {
-            view.setFace(
-              face.faceUp,
-              animate ? ANIM.flip / this.speed : 0,
-              animate ? 110 / this.speed : 0,
-            );
-          }
+          flights.push({ view, pile, index: i, x: pos.x, y: pos.y, faceUp: face.faceUp, covered });
+          return;
+        }
+        view.setCovered(covered);
+        if (!animate || moving) view.placeAt(pos.x, pos.y);
+        if (!view.isMoving) view.setDepth(REST_DEPTH + i);
+        if (face.faceUp !== view.faceUp) {
+          const delay = animate ? 120 / this.speed : 0;
+          view.setFace(face.faceUp, animate ? ANIM.flip / this.speed : 0, delay);
+          if (animate && face.faceUp) this.onReveal(view, delay);
         }
       });
     }
+    this.launch(flights, opts);
     this.updateStockSlot();
     this.updateControls();
+  }
+
+  /** Lance les vols : arcs, échelonnement des piles, retournements et effets à l'arrivée. */
+  private launch(flights: readonly Flight[], opts: SyncOptions): void {
+    if (flights.length === 0) {
+      if (opts.scoreDelta && opts.focus) this.showScore(opts.scoreDelta, opts.focus);
+      return;
+    }
+    const speed = this.speed;
+    const { cardH } = this.layout;
+    const first = new Map<string, number>();
+    for (const f of flights) {
+      first.set(f.pile.id, Math.min(first.get(f.pile.id) ?? Infinity, f.index));
+    }
+    let order = 0;
+    let scoreShown = false;
+    for (const f of flights) {
+      const { view, pile } = f;
+      const k = f.index - (first.get(pile.id) ?? f.index);
+      const dist = Math.hypot(f.x - view.left, f.y - view.top);
+      let duration = this.moveDuration(dist);
+      let delay = (k * 28) / speed;
+      let arc: number | undefined;
+      let lift: number | undefined;
+      let tilt: number | undefined;
+      switch (opts.kind) {
+        case 'deal':
+          duration = ANIM.deal / speed;
+          delay = this.dealDelay(pile, f.index);
+          lift = 0.75;
+          tilt = 10;
+          break;
+        case 'drop':
+          duration = (ANIM.drop / speed) * (1 + Math.min(1, dist / (cardH * 3)));
+          delay = (k * 12) / speed;
+          arc = 0;
+          lift = 0.05;
+          break;
+        case 'cascade':
+          lift = 1;
+          arc = Math.min(dist * 0.25, cardH * 0.8);
+          tilt = 12;
+          break;
+        case 'undo':
+          delay = (k * 18) / speed;
+          lift = 0.6;
+          break;
+        default:
+          if (pile.id === 'stock') {
+            // Défausse remise dans la pioche : un flot rapide de cartes.
+            delay = (k * 9) / speed;
+            duration = Math.min(duration, 300 / speed);
+            arc = cardH * 0.25;
+          }
+      }
+      const lead = k === 0;
+      const scoreHere = !scoreShown && lead && opts.focus === pile.id && !!opts.scoreDelta;
+      if (scoreHere) scoreShown = true;
+      view.setDepth(FLY_DEPTH + order++);
+      view.flyTo(f.x, f.y, {
+        duration,
+        delay,
+        arc,
+        lift,
+        tilt,
+        onStart: () => {
+          if (opts.kind === 'deal') {
+            audio.play('deal', { volume: 0.55, pitch: 0.9 + Math.random() * 0.25 });
+          } else if (lead && dist > cardH * 1.4 && opts.kind !== 'drop') {
+            audio.play('whoosh', { volume: 0.5, pitch: 0.9 + Math.random() * 0.2 });
+          }
+        },
+        onLand: () => {
+          view.setDepth(REST_DEPTH + f.index);
+          if (lead) this.onLand(view, pile, opts);
+          if (scoreHere) this.showScore(opts.scoreDelta ?? 0, pile.id, view);
+        },
+      });
+      view.setCovered(f.covered);
+      if (f.faceUp !== view.faceUp) {
+        // Pioche : la carte se retourne en vol. Donne : juste avant de se poser.
+        const flipDelay = opts.kind === 'deal' ? delay + duration * 0.62 : delay;
+        view.setFace(f.faceUp, Math.min(ANIM.flip / speed, duration * 0.9), flipDelay);
+      }
+    }
+    if (!scoreShown && opts.scoreDelta && opts.focus) this.showScore(opts.scoreDelta, opts.focus);
+  }
+
+  /** Effets à l'arrivée d'une carte (ou de la première carte d'une pile déplacée). */
+  private onLand(view: CardView, pile: PileSnapshot, opts: SyncOptions): void {
+    if (opts.kind === 'deal' || opts.kind === 'instant') return;
+    const level = this.quality.current;
+    const cx = view.x;
+    const cy = view.y;
+    if (pile.kind === 'foundation' && opts.kind !== 'undo') {
+      const now = this.time.now;
+      this.combo = now - this.lastFoundationAt < COMBO_WINDOW_MS ? Math.min(this.combo + 1, 12) : 0;
+      this.lastFoundationAt = now;
+      const pitch = Math.pow(2, this.combo / 12);
+      audio.play('foundation', { pitch });
+      audio.play('sparkle', { pitch, volume: 0.8 });
+      const base = this.layout.piles[pile.id];
+      if (base) {
+        flashSlot(
+          this,
+          base.x,
+          base.y,
+          this.layout.cardW,
+          this.layout.cardH,
+          FX_DEPTH - 1,
+          this.speed,
+        );
+      }
+      sparkleBurst(this, cx, cy, {
+        count: level >= 2 ? 18 : level === 1 ? 10 : 5,
+        radius: this.layout.cardW * 0.9,
+        depth: FX_DEPTH,
+        gold: true,
+      });
+      return;
+    }
+    if (pile.kind === 'tableau') {
+      audio.play('place', { pitch: 0.95 + Math.random() * 0.1 });
+      if (level >= 1 && opts.kind !== 'undo') {
+        ripple(this, cx, cy, this.layout.cardW * 1.9, RIPPLE_DEPTH, this.speed, 0.42);
+      }
+      return;
+    }
+    if (pile.id === 'waste' && opts.kind === 'undo') audio.play('place', { volume: 0.6 });
+  }
+
+  /** Une carte cachée du tableau se retourne : petit éclat. */
+  private onReveal(view: CardView, delay: number): void {
+    this.time.delayedCall(delay, () => {
+      audio.play('flip');
+      if (this.quality.current >= 1) {
+        this.time.delayedCall(ANIM.flip / this.speed / 2, () =>
+          sparkleBurst(this, view.x, view.y, {
+            count: 6,
+            radius: this.layout.cardW * 0.6,
+            depth: FX_DEPTH,
+          }),
+        );
+      }
+    });
+  }
+
+  /** Points gagnés (doré) ou perdus (corail) qui s'envolent de la pile concernée. */
+  private showScore(delta: number, pileId: string, view?: CardView): void {
+    if (delta === 0 || app.settings.scoring !== 'standard') return;
+    const { cardW, cardH, unit } = this.layout;
+    const base = this.layout.piles[pileId];
+    const x = view ? view.x : base ? base.x + cardW / 2 : this.scale.width / 2;
+    const y = view ? view.y - cardH * 0.25 : base ? base.y + cardH * 0.25 : this.scale.height / 2;
+    floatText(this, x, y, `${delta > 0 ? '+' : ''}${delta}`, {
+      color: delta > 0 ? CSS.gold : CSS.coral,
+      size: 26 * unit,
+      depth: FX_DEPTH + 1,
+      unit,
+      speed: this.speed,
+    });
   }
 
   private updateStockSlot(): void {
@@ -436,7 +672,7 @@ export class GameScene extends Phaser.Scene {
     if (stock.length === 0 && waste.length > 0) {
       icon = klondike.isLegal(session.state, { type: 'recycle' }) ? 'recycle' : 'empty';
     }
-    slot.setTexture(TEX.slot(icon));
+    if (slot.texture.key !== TEX.slot(icon)) slot.setTexture(TEX.slot(icon));
   }
 
   private updateControls(): void {
@@ -447,30 +683,52 @@ export class GameScene extends Phaser.Scene {
     const canFinish = !this.won && !this.cascading && klondike.canAutoComplete(session.state);
     if (canFinish !== this.finishButton.visible) {
       this.finishButton.setVisible(canFinish);
+      this.finishPulse?.stop();
+      this.finishPulse = null;
       if (canFinish) {
-        this.finishButton.setScale(0.6).setAlpha(0);
-        this.tweens.add({
+        this.finishButton.setAlpha(1).bounce();
+        audio.play('pop', { pitch: 1.2 });
+        // Le bouton « respire » doucement pour être remarqué.
+        this.finishPulse = this.tweens.add({
           targets: this.finishButton,
-          scale: 1,
-          alpha: 1,
-          duration: 240 / this.speed,
-          ease: 'Back.easeOut',
+          scale: 1.06,
+          duration: 700,
+          delay: 500,
+          yoyo: true,
+          repeat: -1,
+          ease: 'Sine.easeInOut',
         });
       }
     }
-    this.refreshInfo(true);
+    this.refreshInfo();
   }
 
   private refreshInfo(force = false): void {
     const session = this.session;
-    if (!session || !this.info) return;
+    if (!session || !this.pills) return;
     const s = app.settings;
-    const parts: string[] = [];
-    if (s.scoring === 'standard') parts.push(`${t('game.score')} ${session.score}`);
-    parts.push(`${t('game.moves')} ${session.moveCount}`);
-    if (s.showTimer) parts.push(formatTime(session.elapsedMs));
-    const text = parts.join('   ·   ');
-    if (force || text !== this.info.text) this.info.setText(text);
+    const { score, moves, time } = this.pills;
+    const before = [score.value, moves.value, time.value].join('|');
+    score.setVisible(s.scoring === 'standard');
+    time.setVisible(s.showTimer);
+    score.setValue(`${t('game.score')} ${session.score}`, !force);
+    moves.setValue(`${t('game.moves')} ${session.moveCount}`, !force);
+    if (s.showTimer) time.setValue(formatTime(session.elapsedMs));
+    const after = [score.value, moves.value, time.value].join('|');
+    if (force || before !== after) this.layoutPills();
+  }
+
+  private layoutPills(): void {
+    const { infoBar, unit: u } = this.layout;
+    const visible = Object.values(this.pills).filter((p) => p.visible);
+    const gap = 10 * u;
+    const total = visible.reduce((sum, p) => sum + p.pillWidth, 0) + gap * (visible.length - 1);
+    let x = infoBar.x + infoBar.w / 2 - total / 2;
+    const y = infoBar.y + infoBar.h / 2;
+    for (const pill of visible) {
+      pill.setPosition(x + pill.pillWidth / 2, y);
+      x += pill.pillWidth + gap;
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -510,8 +768,8 @@ export class GameScene extends Phaser.Scene {
 
   private onDown(p: Phaser.Input.Pointer, over: Phaser.GameObjects.GameObject[]): void {
     audio.unlock();
-    if (this.winFx) {
-      this.winFx.skip();
+    if (this.celebration) {
+      this.celebration.skip();
       return;
     }
     if (this.cascading) {
@@ -524,25 +782,32 @@ export class GameScene extends Phaser.Scene {
       if (previous?.isDown && previous.id !== p.id) return;
       // … mais un geste dont le relâchement a été perdu (appel, geste système) est abandonné.
       this.cancelDrag();
+      this.releasePress();
       this.pointer = null;
     }
-    if (over.length > 0 || this.dialog || !this.session || this.won) return;
+    if (over.length > 0 || this.dialog || !this.session || this.won || this.leaving) return;
     this.clearHint();
     const hit = this.hitTest(p.x, p.y);
     const draggable = hit ? klondike.canDrag(this.session.state, hit.pileId, hit.cardIndex) : false;
     this.pointer = { id: p.id, x: p.x, y: p.y, hit, draggable };
+    this.press(hit, draggable);
   }
 
   private onMove(p: Phaser.Input.Pointer): void {
     const down = this.pointer;
     if (!down || down.id !== p.id || !p.isDown) return;
     if (this.drag) {
-      this.updateDrag(p);
+      this.drag.pointerX = p.x;
+      this.drag.pointerY = p.y;
       return;
     }
     if (down.draggable && down.hit && Math.hypot(p.x - down.x, p.y - down.y) > 8 * this.dpr) {
       this.startDrag(down.hit);
-      this.updateDrag(p);
+      if (this.drag) {
+        const d = this.drag as DragState;
+        d.pointerX = p.x;
+        d.pointerY = p.y;
+      }
     }
   }
 
@@ -554,8 +819,31 @@ export class GameScene extends Phaser.Scene {
       this.endDrag();
       return;
     }
-    if (!down?.hit || Math.hypot(p.x - down.x, p.y - down.y) > 14 * this.dpr) return;
-    this.tap(down.hit);
+    if (down?.hit && Math.hypot(p.x - down.x, p.y - down.y) <= 14 * this.dpr) this.tap(down.hit);
+    this.releasePress();
+  }
+
+  /** Retour immédiat au toucher : la carte (ou la pile) touchée se soulève un peu. */
+  private press(hit: Hit | null, draggable: boolean): void {
+    this.releasePress();
+    const session = this.session;
+    if (!hit || !session) return;
+    const pile = klondike.piles(session.state).find((pp) => pp.id === hit.pileId);
+    if (!pile || pile.cards.length === 0) return;
+    let views: CardView[] = [];
+    if (draggable) {
+      views = pile.cards.slice(hit.cardIndex).map((f) => this.cards[f.card] as CardView);
+    } else if (hit.pileId === 'stock') {
+      const top = pile.cards[pile.cards.length - 1];
+      if (top) views = [this.cards[top.card] as CardView];
+    }
+    this.pressed = views.filter((v) => !v.isMoving);
+    for (const v of this.pressed) v.liftTo(0.3, 90 / this.speed);
+  }
+
+  private releasePress(): void {
+    for (const v of this.pressed) if (!v.isMoving) v.liftTo(0, 150 / this.speed);
+    this.pressed = [];
   }
 
   /** Carte (ou emplacement vide) sous le doigt, avec des zones de toucher généreuses. */
@@ -608,18 +896,21 @@ export class GameScene extends Phaser.Scene {
   private reject(hit: Hit): void {
     const session = this.session;
     if (!session) return;
+    this.releasePress();
     const pile = klondike.piles(session.state).find((p) => p.id === hit.pileId);
-    const amplitude = 5 * this.dpr;
+    const amplitude = 6 * this.dpr;
     const duration = ANIM.shake / this.speed;
     if (!pile || pile.cards.length === 0 || hit.cardIndex < 0) {
       const slot = this.slots.get(hit.pileId);
       if (slot) {
+        const x = slot.x;
         this.tweens.add({
           targets: slot,
-          x: slot.x + amplitude,
+          x: x + amplitude,
           duration: duration / 6,
           yoyo: true,
           repeat: 2,
+          onComplete: () => slot.setX(x),
         });
       }
     } else {
@@ -642,18 +933,29 @@ export class GameScene extends Phaser.Scene {
     const first = views[0];
     const down = this.pointer;
     if (!first || !down) return;
+    this.pressed = [];
+    // La carte dessous redevient visible dès qu'on soulève celle du dessus.
+    const below = pile.cards[hit.cardIndex - 1];
+    if (below) this.cards[below.card]?.setCovered(false);
     const offsets = views.map((v) => ({
       dx: v.targetX - first.targetX,
       dy: v.targetY - first.targetY,
     }));
-    views.forEach((v, k) => v.setDepth(DRAG_DEPTH + k));
-    const targets = klondike.dropTargets(session.state, hit.pileId, hit.cardIndex);
-    const glows = targets.map((id) => {
-      const r = this.targetCardRect(id);
-      const g = addGlow(this, r.x, r.y, r.w, r.h, this.speed);
-      g.setAlpha(0.5);
-      return g;
+    views.forEach((v, k) => {
+      v.setDepth(DRAG_DEPTH + k);
+      v.liftTo(1, 140 / this.speed);
     });
+    const targets = klondike.dropTargets(session.state, hit.pileId, hit.cardIndex);
+    const glows = new Map<string, Phaser.GameObjects.Image>();
+    for (const id of targets) {
+      const r = this.targetCardRect(id);
+      const glow = this.add
+        .image(r.x + r.w / 2, r.y + r.h / 2, TEX.glow)
+        .setDepth(20_000)
+        .setAlpha(0);
+      this.tweens.add({ targets: glow, alpha: 0.4, duration: 160 });
+      glows.set(id, glow);
+    }
     this.drag = {
       pileId: hit.pileId,
       cardIndex: hit.cardIndex,
@@ -663,26 +965,67 @@ export class GameScene extends Phaser.Scene {
       grabDY: down.y - first.targetY,
       targets,
       glows,
+      pointerX: down.x,
+      pointerY: down.y,
+      tilt: 0,
+      hover: null,
     };
     audio.play('slide');
   }
 
-  private updateDrag(p: Phaser.Input.Pointer): void {
+  /**
+   * Suivi du doigt à chaque image : la carte saisie suit presque instantanément,
+   * les suivantes avec un léger retard (effet de guirlande) et le paquet
+   * s'incline selon la vitesse. La pile visée s'illumine.
+   */
+  private stepDrag(delta: number): void {
     const d = this.drag;
     if (!d) return;
-    const x = p.x - d.grabDX;
-    const y = p.y - d.grabDY;
+    const dt = Phaser.Math.Clamp(delta, 1, 50);
+    const gx = d.pointerX - d.grabDX;
+    const gy = d.pointerY - d.grabDY;
+    const first = d.views[0] as CardView;
+    const prevX = first.left;
     d.views.forEach((v, k) => {
       const o = d.offsets[k] as { dx: number; dy: number };
-      v.dragTo(x + o.dx, y + o.dy);
+      const a = 1 - Math.exp(-dt / (10 + k * 30));
+      const x = v.left + (gx + o.dx - v.left) * a;
+      const y = v.top + (gy + o.dy - v.top) * a;
+      v.dragTo(x, y, d.tilt * (1 + k * 0.1));
     });
+    const vx = (first.left - prevX) / dt / this.dpr;
+    const goal = this.speed > 1 ? 0 : Phaser.Math.Clamp(vx * 7, -10, 10);
+    d.tilt += (goal - d.tilt) * (1 - Math.exp(-dt / 70));
+    const hover = this.pickDropTarget(d.targets, gx, gy);
+    if (hover !== d.hover) {
+      d.hover = hover;
+      for (const [id, glow] of d.glows) {
+        this.tweens.add({
+          targets: glow,
+          alpha: id === hover ? 1 : 0.4,
+          scale: id === hover ? 1.05 : 1,
+          duration: 120,
+        });
+      }
+    }
+  }
+
+  private destroyGlows(d: DragState): void {
+    for (const glow of d.glows.values()) {
+      this.tweens.add({
+        targets: glow,
+        alpha: 0,
+        duration: 140,
+        onComplete: () => glow.destroy(),
+      });
+    }
   }
 
   private cancelDrag(): void {
     const d = this.drag;
     if (!d) return;
     this.drag = null;
-    for (const g of d.glows) g.destroy();
+    this.destroyGlows(d);
     d.views.forEach((v, k) => {
       v.placeAt(v.targetX, v.targetY);
       v.setDepth(REST_DEPTH + d.cardIndex + k);
@@ -694,17 +1037,21 @@ export class GameScene extends Phaser.Scene {
     const session = this.session;
     this.drag = null;
     if (!d || !session) return;
-    for (const g of d.glows) g.destroy();
-    const first = d.views[0] as CardView;
-    const target = this.pickDropTarget(d.targets, first.left, first.top);
+    this.destroyGlows(d);
+    const target = this.pickDropTarget(d.targets, d.pointerX - d.grabDX, d.pointerY - d.grabDY);
     if (target) {
       const move = klondike.dropMove(session.state, d.pileId, d.cardIndex, target);
-      if (move && this.play(move)) return;
+      if (move && this.play(move, 'drop')) return;
     }
+    audio.play('slide', { pitch: 0.8, volume: 0.7 });
     d.views.forEach((v, k) => {
-      v.moveTo(v.targetX, v.targetY, ANIM.snapBack / this.speed, 0, () =>
-        v.setDepth(REST_DEPTH + d.cardIndex + k),
-      );
+      v.flyTo(v.targetX, v.targetY, {
+        duration: ANIM.snapBack / this.speed,
+        delay: (k * 14) / this.speed,
+        arc: 0,
+        lift: 0.1,
+        onLand: () => v.setDepth(REST_DEPTH + d.cardIndex + k),
+      });
     });
   }
 
@@ -747,32 +1094,31 @@ export class GameScene extends Phaser.Scene {
   // Coups
   // ---------------------------------------------------------------------------
 
-  private play(move: KlondikeMove): boolean {
+  private play(move: KlondikeMove, kind: 'play' | 'drop' = 'play'): boolean {
     const session = this.session;
     if (!session || this.won) return false;
+    const before = session.score;
     const record = session.apply(move);
     if (!record) return false;
     this.feedback(record);
-    this.afterChange();
+    const focus = move.type === 'move' ? move.to : 'stock';
+    this.afterChange({ kind, scoreDelta: session.score - before, focus });
     return true;
   }
 
   private feedback(record: KlondikeRecord): void {
     const { move } = record;
-    if (move.type === 'draw') audio.play('deal');
+    if (move.type === 'draw') audio.play('flip', { pitch: 0.9 });
     else if (move.type === 'recycle') audio.play('slide');
-    else if (move.to.startsWith('f')) audio.play('foundation');
-    else audio.play('place');
-    if (record.flipped) this.time.delayedCall(140 / this.speed, () => audio.play('flip'));
     haptics.light();
   }
 
-  private afterChange(): void {
+  private afterChange(opts: SyncOptions): void {
     const session = this.session;
     if (!session) return;
     this.version++;
     this.clearHint();
-    this.sync(true);
+    this.sync(opts);
     app.storeSession(session);
     if (session.isWon) {
       this.onWin();
@@ -785,8 +1131,9 @@ export class GameScene extends Phaser.Scene {
     const session = this.session;
     if (!session || this.cascading || this.won) return;
     if (session.undo()) {
-      audio.play('slide');
-      this.afterChange();
+      audio.play('whoosh', { pitch: 0.8, volume: 0.6 });
+      this.combo = 0;
+      this.afterChange({ kind: 'undo' });
     }
   }
 
@@ -801,22 +1148,26 @@ export class GameScene extends Phaser.Scene {
     session.autoCompleted = true;
     analytics.track('autocomplete_used', { moves: moves.length });
     this.cascadeQueue = [...moves];
+    this.combo = 0;
+    this.lastFoundationAt = this.time.now;
     this.updateControls();
+    let index = 0;
     const step = (): void => {
       const move = this.cascadeQueue.shift();
       if (!move) {
         this.cascadeTimer = null;
         this.cascading = false;
-        this.afterChange();
+        this.afterChange({ kind: 'play' });
         return;
       }
-      const record = session.apply(move);
-      if (record) {
+      if (session.apply(move)) {
         this.version++;
-        if (move.type === 'move') audio.play('foundation');
-        this.sync(true);
+        // Pas de « +10 » à chaque carte : le compteur de score suffit pendant la cascade.
+        this.sync({ kind: 'cascade' });
       }
-      this.cascadeTimer = this.time.delayedCall(ANIM.cascadeStagger / this.speed, step);
+      // La cascade accélère (de 110 à 45 ms entre deux cartes) : un final enlevé.
+      const delay = Math.max(45, 110 * Math.pow(0.94, index++)) / this.speed;
+      this.cascadeTimer = this.time.delayedCall(delay, step);
     };
     step();
   }
@@ -831,8 +1182,8 @@ export class GameScene extends Phaser.Scene {
     this.cascadeQueue = [];
     this.cascading = false;
     this.version++;
-    this.sync(false);
-    this.afterChange();
+    this.sync({ kind: 'instant' });
+    this.afterChange({ kind: 'play' });
   }
 
   // --- Indices ---------------------------------------------------------------------
@@ -854,12 +1205,13 @@ export class GameScene extends Phaser.Scene {
     }
     session.hintCount++;
     analytics.track('hint_used', { source });
+    audio.play('sparkle', { pitch: 0.8, volume: 0.6 });
     this.showHint(move);
   }
 
   private toastY(): number {
     const { toolbar } = this.layout;
-    return toolbar.vertical ? this.scale.height * 0.85 : toolbar.y - 40 * this.layout.unit;
+    return toolbar.vertical ? this.scale.height * 0.85 : toolbar.y - 44 * this.layout.unit;
   }
 
   private showHint(move: KlondikeMove): void {
@@ -898,7 +1250,7 @@ export class GameScene extends Phaser.Scene {
         x: to.x + cardW / 2,
         y: to.y + dy + cardH / 2,
         alpha: { from: 0.9, to: 0.25 },
-        duration: 650 / this.speed,
+        duration: 700 / this.speed,
         delay: 150,
         repeat: 1,
         repeatDelay: 450,
@@ -927,7 +1279,11 @@ export class GameScene extends Phaser.Scene {
     void app.solver.isBlocked(klondike.cloneState(session.state)).then((blocked) => {
       if (!blocked || version !== this.version || this.session !== session) return;
       if (this.blockedDismissed === version || this.dialog || this.won) return;
-      this.showBlockedDialog();
+      // On laisse les cartes se poser avant d'annoncer le blocage.
+      this.time.delayedCall(ANIM.moveMax / this.speed, () => {
+        if (version !== this.version || this.dialog || this.won) return;
+        this.showBlockedDialog();
+      });
     });
   }
 
@@ -1036,14 +1392,23 @@ export class GameScene extends Phaser.Scene {
     const bonus = s.scoring === 'standard' && s.showTimer ? timeBonus(session.elapsedMs / 1000) : 0;
     const score = session.score + bonus;
     app.recordWin(session, score);
-    audio.play('win');
     haptics.success();
     this.updateControls();
-    this.time.delayedCall((ANIM.moveMax + 150) / this.speed, () => {
+    this.time.delayedCall((ANIM.moveMax + 200) / this.speed, () => {
       if (!this.won || this.session !== session) return;
-      this.winFx = playWinAnimation(this, this.cards, this.speed, () => {
-        this.winFx = null;
-        this.showWinDialog(session, score, bonus);
+      audio.play('win');
+      this.celebration = new WinCelebration(this, {
+        cards: this.cards,
+        title: t('win.title'),
+        skipLabel: t('win.skip'),
+        skipY: this.toastY(),
+        unit: this.layout.unit,
+        speed: this.speed,
+        quality: this.quality.current,
+        onDone: () => {
+          this.celebration = null;
+          this.showWinDialog(session, score, bonus);
+        },
       });
     });
   }
@@ -1051,19 +1416,23 @@ export class GameScene extends Phaser.Scene {
   private showWinDialog(session: KlondikeSession, score: number, bonus: number): void {
     // Une nouvelle partie a pu être lancée pendant l'animation.
     if (!this.won || this.session !== session) return;
-    const lines = [
-      `${t('win.time')} : ${formatTime(session.elapsedMs)}`,
-      `${t('win.moves')} : ${session.moveCount}`,
+    const stats: DialogStat[] = [
+      {
+        label: t('win.time'),
+        value: session.elapsedMs,
+        format: (v) => formatTime(v),
+      },
+      { label: t('win.moves'), value: session.moveCount },
     ];
-    if (app.settings.scoring === 'standard') {
-      lines.push(`${t('win.score')} : ${score}`);
-      if (bonus > 0) lines.push(t('win.bonus', { bonus }));
-    }
+    if (app.settings.scoring === 'standard') stats.push({ label: t('win.score'), value: score });
     this.openDialog(
       () =>
         new Dialog(this, {
           title: t('win.title'),
-          body: lines.join('\n'),
+          subtitle: t('win.subtitle'),
+          body: bonus > 0 ? t('win.bonus', { bonus }) : undefined,
+          stats,
+          celebrate: true,
           unit: this.layout.unit,
           buttons: [
             {
@@ -1099,13 +1468,20 @@ export class GameScene extends Phaser.Scene {
   }
 
   private goToMenu(): void {
+    if (this.leaving) return;
+    this.leaving = true;
+    this.cancelDrag();
     if (this.session && !this.won) app.storeSession(this.session);
     app.persistNow();
-    this.scene.start('Menu');
+    this.cameras.main.fadeOut(220, 6, 32, 43);
+    this.cameras.main.once(Phaser.Cameras.Scene2D.Events.FADE_OUT_COMPLETE, () =>
+      this.scene.start('Menu'),
+    );
   }
 
   private openSettings(): void {
     this.cancelDrag();
+    this.releasePress();
     this.clearHint();
     this.scene.launch('Settings', { from: 'Game' });
     this.scene.pause();
@@ -1113,7 +1489,10 @@ export class GameScene extends Phaser.Scene {
 
   // --- Boucle -----------------------------------------------------------------------------------
 
-  override update(_time: number, delta: number): void {
+  override update(time: number, delta: number): void {
+    this.quality.sample(delta);
+    this.decor?.update(time, delta);
+    this.stepDrag(delta);
     const session = this.session;
     if (!session || this.won || this.dialog) return;
     session.tick(Math.min(delta, 1000));

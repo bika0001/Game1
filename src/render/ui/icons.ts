@@ -1,7 +1,18 @@
 import type Phaser from 'phaser';
 
 export type IconName =
-  'undo' | 'hint' | 'new' | 'menu' | 'settings' | 'finish' | 'back' | 'play' | 'replay';
+  | 'undo'
+  | 'hint'
+  | 'new'
+  | 'menu'
+  | 'settings'
+  | 'finish'
+  | 'back'
+  | 'play'
+  | 'replay'
+  | 'star'
+  | 'clock'
+  | 'moves';
 
 /** Pictogrammes simples dessinés en vecteurs (lisibles, sans police d'icônes). */
 export function drawIcon(
@@ -95,6 +106,28 @@ export function drawIcon(
     }
     case 'play': {
       g.fillTriangle(cx - s * 0.35, cy - s * 0.55, cx - s * 0.35, cy + s * 0.55, cx + s * 0.55, cy);
+      break;
+    }
+    case 'star': {
+      const pts: Phaser.Types.Math.Vector2Like[] = [];
+      for (let i = 0; i < 10; i++) {
+        const a = -Math.PI / 2 + (i * Math.PI) / 5;
+        const r = i % 2 === 0 ? s * 0.95 : s * 0.42;
+        pts.push({ x: cx + Math.cos(a) * r, y: cy + Math.sin(a) * r + s * 0.06 });
+      }
+      g.fillPoints(pts, true);
+      break;
+    }
+    case 'clock': {
+      g.strokeCircle(cx, cy, s * 0.78);
+      g.lineBetween(cx, cy, cx, cy - s * 0.48);
+      g.lineBetween(cx, cy, cx + s * 0.36, cy + s * 0.14);
+      break;
+    }
+    case 'moves': {
+      // Deux cartes décalées et une flèche : « coups joués ».
+      g.strokeRoundedRect(cx - s * 0.7, cy - s * 0.55, s * 0.8, s * 1.1, s * 0.12);
+      g.fillRoundedRect(cx - s * 0.05, cy - s * 0.4, s * 0.8, s * 1.1, s * 0.12);
       break;
     }
   }

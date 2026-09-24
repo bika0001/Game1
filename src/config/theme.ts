@@ -14,6 +14,11 @@ export const PALETTE = {
   tableEdge: 0x0b3a46,
   /** Surbrillance des indices. */
   glow: 0xffd166,
+  gold: 0xffc857,
+  coralDark: 0xc2553b,
+  turquoiseDark: 0x1f7a6f,
+  foamShade: 0xd9e6e3,
+  deep: 0x0b2a3a,
 } as const;
 
 export const CSS = {
@@ -29,9 +34,13 @@ export const CSS = {
   muted: '#6B7C85',
   panel: '#FAFAF7',
   overlay: 'rgba(8, 30, 38, 0.72)',
+  gold: '#FFC857',
+  deep: '#0B2A3A',
 } as const;
 
 export const FONTS = {
+  /** Police arrondie et chaleureuse (titres, boutons, compteurs), embarquée (OFL). */
+  display: 'Fredoka, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
   ui: '"Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
   title: 'Georgia, "Times New Roman", serif',
   card: '"Helvetica Neue", Arial, Roboto, sans-serif',
@@ -60,14 +69,16 @@ export const CARD = {
 
 /** Durées d'animation (ms) ; divisées par REDUCED_MOTION_FACTOR si l'option est active. */
 export const ANIM = {
-  move: 190,
-  moveMax: 320,
-  flip: 170,
-  snapBack: 200,
-  dealStagger: 22,
-  cascadeStagger: 85,
-  shake: 260,
-  hintPulse: 1200,
+  /** Vol d'une carte : durée de base et maximum (la durée croît avec la distance). */
+  move: 250,
+  moveMax: 430,
+  /** Glisser-déposer : atterrissage depuis le doigt, retour en cas de refus. */
+  drop: 170,
+  snapBack: 260,
+  flip: 250,
+  deal: 360,
+  dealStagger: 38,
+  shake: 300,
 } as const;
 
 export const REDUCED_MOTION_FACTOR = 3.5;

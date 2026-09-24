@@ -14,8 +14,9 @@ Tout ce qui touche au ressenti, au style visuel ou à la monétisation reste sou
    TypeScript 5.9 (typescript-eslint ne prend pas encore en charge TypeScript 7), Vite 7, Vitest 4.
 3. **`.npmrc` avec `legacy-peer-deps`** : npm 10.9 plante (« reading 'edgesOut' ») en résolvant les
    dépendances optionnelles de Vitest.
-4. **Polices système** (aucun téléchargement, fonctionne hors ligne) : sans-serif grasse pour les index
-   des cartes, Georgia pour les titres.
+4. **Polices** : **Fredoka** (licence OFL, embarquée, ≈ 50 Ko, fonctionne hors ligne) pour les titres,
+   boutons et compteurs ; police système sans-serif grasse pour les index des cartes et les textes
+   longs (lisibilité maximale).
 5. **Canevas en pixels physiques** (densité plafonnée à 3) réduit par le zoom de Phaser : cartes et
    textes parfaitement nets sans surcoût notable.
 
@@ -102,3 +103,41 @@ Tout ce qui touche au ressenti, au style visuel ou à la monétisation reste sou
     3e partie »). Rejouer une donne compte comme une nouvelle partie.
 36. **Web hors ligne** : pas de service worker en phase 1 (l'app mobile de la phase 3 est hors ligne par
     nature).
+
+## Refonte visuelle (retour sur la phase 1 : « pas assez fluide, pas assez net, trop classique »)
+
+Ton retour remplace deux points de la spécification : le « juice sobre » et le tapis uni par défaut.
+
+37. **Décor par défaut : un lagon animé** vu du dessus (eau turquoise sur sable, reflets du soleil qui
+    ondulent au fond, bancs de poissons, bulles, algues, ombre de mouette, coraux et coquillages le long
+    de la barre d'outils). Le **tapis classique** reste disponible : Réglages → Affichage → Décor ; le
+    changement s'applique en pleine partie.
+38. **Cartes animées comme de vrais objets** : vols en arc avec soulèvement (la carte grossit, son ombre
+    s'écarte), légère inclinaison, retournement en perspective avec reflet, petit tassement à
+    l'arrivée ; distribution rangée par rangée ; la carte piochée se retourne en vol ; onde sur l'eau
+    quand une carte se pose sur une colonne ; éclats dorés, flash de la fondation et notes qui montent
+    pendant une série (3,5 s entre deux cartes) ; points gagnés qui s'envolent (« +10 »), sauf pendant
+    la cascade « Terminer », qui accélère progressivement.
+39. **Toucher et glisser** : la carte se soulève dès qu'on la touche (retour immédiat) ; pendant le
+    glisser, la carte suit le doigt sans retard, les cartes suivantes avec un léger décalage (effet de
+    guirlande), le paquet s'incline selon la vitesse et la pile visée s'illumine davantage.
+40. **Victoire** : « Bravo ! » qui rebondit lettre par lettre, cartes qui jaillissent des fondations et
+    plongent dans le lagon, confettis marins (étoiles de mer, coquillages) ; toujours passable d'un tap ;
+    bilan avec compteurs qui défilent.
+41. **Netteté** : le décor est dessiné à la pleine résolution de l'écran (il l'était à mi-résolution, ce
+    qui donnait une impression de flou) ; sur un appareil tactile dont le navigateur annonce une densité
+    inférieure à 2 (certaines vues web intégrées), on rend en 2,5× ; budget total plafonné à
+    6,5 millions de pixels.
+42. **Fluidité** : positions au sous-pixel, **qualité adaptative** (si les images par seconde baissent,
+    on retire d'abord l'ambiance du décor, jamais les cartes ; on la rétablit quand tout redevient
+    fluide), ambiance allégée au départ sur les appareils modestes (≤ 4 cœurs ou ≤ 2 Go), cartes
+    entièrement recouvertes non dessinées, textures de la partie préparées pendant le menu (la donne
+    démarre sans temps mort).
+43. **Interface** : barre d'outils en bulles (« Annuler » en corail), pastilles score / coups / temps
+    avec pictogrammes qui rebondissent quand la valeur change, boutons « bonbon » en relief qui
+    s'enfoncent, dialogues qui arrivent en rebondissant, fondus entre les écrans.
+44. **Menu** : marine animée (ciel, soleil et son reflet, île avec phare qui clignote, vagues en
+    parallaxe, nuages, mouettes), voilier qui entre puis tangue, titre dont les lettres ondulent.
+45. **Animations réduites** : durées divisées par 3,5, décor immobile, pas d'inclinaison au glisser.
+46. **Sons** : nouveaux sons synthétisés (souffle des cartes, plouf, éclats dont la hauteur monte
+    pendant une série, « pop », fanfare) ; ils restent provisoires en attendant des assets définitifs.

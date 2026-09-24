@@ -1,4 +1,8 @@
 import Phaser from 'phaser';
+// Police arrondie embarquée (licence OFL), sous-ensemble latin uniquement.
+import '@fontsource/fredoka/latin-500.css';
+import '@fontsource/fredoka/latin-600.css';
+import '@fontsource/fredoka/latin-700.css';
 import { app } from './render/app';
 import { BootScene } from './render/scenes/BootScene';
 import { GameScene } from './render/scenes/GameScene';
@@ -29,9 +33,11 @@ const game = new Phaser.Game({
   },
   render: {
     antialias: true,
-    roundPixels: true,
+    // Positions sub-pixel : les mouvements lents restent parfaitement doux.
+    roundPixels: false,
     powerPreference: 'high-performance',
   },
+  fps: { target: 60, smoothStep: true },
   input: { activePointers: 3 },
   scene: [BootScene, MenuScene, GameScene, SettingsScene],
 });

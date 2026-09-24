@@ -1,16 +1,19 @@
 # Ce que tu dois faire
 
-## Maintenant : valider la phase 1
+## Maintenant : valider la refonte visuelle
 
-- [ ] **Jouer** : `npm install` puis `npm run dev`, et ouvrir l'adresse indiquée sur un téléphone
-      (même réseau Wi-Fi) et sur une tablette, en portrait et en paysage.
-- [ ] **Ressenti** : vitesse des animations, tap = meilleur coup, glisser-déposer, indice, « Terminer »,
-      dialogue « Plus aucun coup possible », animation de victoire.
+- [ ] **Jouer** sur ton téléphone (lien de l'aperçu, ou `npm install` puis `npm run dev` et l'adresse
+      indiquée, même réseau Wi-Fi), en portrait puis en paysage, et si possible sur une tablette.
+- [ ] **Fluidité** : vols des cartes, glisser-déposer, distribution, cascade « Terminer ». Trop lent,
+      trop rapide, ou juste bien ?
+- [ ] **Netteté** : les cartes et les textes sont-ils nets sur ton écran ?
+- [ ] **Décor** : le lagon animé (jeu) et la marine (menu) te plaisent-ils ? Le tapis classique reste
+      disponible dans Réglages → Affichage → Décor.
+- [ ] **Animations** : éclats sur les fondations, « +10 », fête de victoire : assez, trop, pas assez ?
 - [ ] **Style visuel** : faces des cartes, figures (Valet-capitaine, Dame au coquillage, Roi à la barre),
-      dos « vagues », tapis, menu et voilier. La planche complète :
-      `http://localhost:5173/cardsheet.html?w=160`.
+      dos « vagues ». La planche complète : `http://localhost:5173/cardsheet.html?w=160`.
 - [ ] **Sons** : ils sont synthétisés en attendant des assets définitifs ; dis-moi s'ils conviennent.
-- [ ] **Décisions** : relire [DECISIONS.md](DECISIONS.md) et me signaler ce qui doit changer.
+- [ ] **Décisions** : relire [DECISIONS.md](DECISIONS.md) (n° 37 à 46 pour la refonte).
 
 ## Informations à me fournir
 

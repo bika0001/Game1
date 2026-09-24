@@ -4,6 +4,8 @@
 
 export type Locale = 'fr' | 'en';
 export type ScoringMode = 'standard' | 'none';
+/** Décor de la table : lagon animé (par défaut) ou tapis classique uni. */
+export type DecorId = 'lagoon' | 'classic';
 
 export interface Settings {
   readonly drawCount: 1 | 3;
@@ -16,6 +18,7 @@ export interface Settings {
   readonly sound: boolean;
   readonly haptics: boolean;
   readonly reducedMotion: boolean;
+  readonly decor: DecorId;
   readonly locale: Locale;
 }
 
@@ -29,6 +32,7 @@ export const DEFAULT_SETTINGS: Settings = {
   sound: true,
   haptics: true,
   reducedMotion: false,
+  decor: 'lagoon',
   locale: 'fr',
 };
 
@@ -47,6 +51,7 @@ export function normalizeSettings(raw: unknown, fallbackLocale: Locale = 'fr'): 
     sound: bool('sound', DEFAULT_SETTINGS.sound),
     haptics: bool('haptics', DEFAULT_SETTINGS.haptics),
     reducedMotion: bool('reducedMotion', DEFAULT_SETTINGS.reducedMotion),
+    decor: input.decor === 'classic' ? 'classic' : 'lagoon',
     locale: input.locale === 'en' || input.locale === 'fr' ? input.locale : fallbackLocale,
   };
 }

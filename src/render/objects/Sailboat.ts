@@ -2,7 +2,7 @@ import type Phaser from 'phaser';
 import { PALETTE } from '../../config/theme';
 
 /** Petit voilier stylisé (logo du jeu), dessiné en vecteurs autour de (0, 0). */
-export function drawSailboat(g: Phaser.GameObjects.Graphics, size: number): void {
+export function drawSailboat(g: Phaser.GameObjects.Graphics, size: number, waves = true): void {
   const s = size / 2;
   // Grand-voile et foc.
   g.fillStyle(PALETTE.foam, 1);
@@ -25,6 +25,7 @@ export function drawSailboat(g: Phaser.GameObjects.Graphics, size: number): void
   g.fillPath();
   g.fillStyle(PALETTE.navy, 0.35);
   g.fillRect(-s * 0.8, s * 0.46, s * 1.58, s * 0.06);
+  if (!waves) return;
   // Vagues.
   g.lineStyle(Math.max(2, s * 0.07), PALETTE.turquoise, 1);
   for (const [dy, alpha] of [

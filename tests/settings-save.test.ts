@@ -13,6 +13,7 @@ describe('réglages', () => {
       scoring: 'standard',
       showTimer: false,
       leftHanded: false,
+      decor: 'lagoon',
     });
     expect(NEXT_GAME_SETTINGS).toContain('drawCount');
   });
@@ -27,6 +28,7 @@ describe('réglages', () => {
       sound: 'oui',
       locale: 'de',
       leftHanded: true,
+      decor: 'classic',
     });
     expect(s.drawCount).toBe(3);
     expect(s.scoring).toBe('none');
@@ -34,9 +36,11 @@ describe('réglages', () => {
     expect(s.sound).toBe(DEFAULT_SETTINGS.sound);
     expect(s.locale).toBe('fr');
     expect(s.leftHanded).toBe(true);
-    expect(normalizeSettings({ drawCount: 2, locale: 'en' })).toMatchObject({
+    expect(s.decor).toBe('classic');
+    expect(normalizeSettings({ drawCount: 2, locale: 'en', decor: 'moon' })).toMatchObject({
       drawCount: 1,
       locale: 'en',
+      decor: 'lagoon',
     });
   });
 });

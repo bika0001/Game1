@@ -49,7 +49,7 @@ export function drawTable(ctx: Ctx, w: number, h: number): void {
 
 export type SlotIcon = 'none' | 'ace' | 'king' | 'recycle' | 'empty';
 
-/** Emplacement vide : contour doux et pictogramme discret. */
+/** Emplacement vide : verre dépoli, contour clair et pictogramme lisible sur tous les décors. */
 export function drawSlot(
   ctx: Ctx,
   x: number,
@@ -60,25 +60,25 @@ export function drawSlot(
   labels: { ace: string },
 ) {
   const radius = w * CARD.radius;
-  const line = Math.max(1, Math.round(w * 0.022));
+  const line = Math.max(1, Math.round(w * 0.028));
   roundRectPath(ctx, x + line / 2, y + line / 2, w - line, h - line, radius);
-  ctx.fillStyle = 'rgba(255, 255, 255, 0.06)';
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.16)';
   ctx.fill();
   ctx.lineWidth = line;
-  ctx.strokeStyle = 'rgba(233, 216, 166, 0.38)';
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.62)';
   ctx.stroke();
 
   const cx = x + w / 2;
   const cy = y + h / 2;
   ctx.save();
-  ctx.fillStyle = 'rgba(233, 216, 166, 0.42)';
-  ctx.strokeStyle = 'rgba(233, 216, 166, 0.42)';
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.78)';
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.78)';
   ctx.lineWidth = Math.max(1, w * 0.045);
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
   switch (icon) {
     case 'ace': {
-      ctx.font = `700 ${h * 0.34}px Georgia, serif`;
+      ctx.font = `600 ${h * 0.36}px Fredoka, "Segoe UI", Roboto, sans-serif`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillText(labels.ace, cx, cy + h * 0.02);

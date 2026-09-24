@@ -78,8 +78,8 @@ function portrait(input: LayoutInput): Candidate {
   const { width: W, height: H, safe, dpr, uiScale } = input;
   const u = dpr * uiScale;
   const side = Math.max(safe.left, safe.right) + 6 * dpr;
-  const infoH = 40 * u;
-  const toolH = 66 * u;
+  const infoH = 46 * u;
+  const toolH = 80 * u;
   const top = safe.top + infoH;
   const bottom = H - safe.bottom - input.bannerHeight - toolH;
   const gapY = 10 * dpr;
@@ -129,8 +129,8 @@ function portrait(input: LayoutInput): Candidate {
 function landscape(input: LayoutInput, foundationColumns: 1 | 2): Candidate {
   const { width: W, height: H, safe, dpr, uiScale } = input;
   const u = dpr * uiScale;
-  const toolW = 78 * u;
-  const infoH = 34 * u;
+  const toolW = 84 * u;
+  const infoH = 40 * u;
   const pad = 8 * dpr;
   const top = safe.top + pad;
   const bottom = H - safe.bottom - input.bannerHeight - pad;
