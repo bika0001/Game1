@@ -105,6 +105,7 @@ export class GameScene extends Phaser.Scene {
     this.dialogBuilder = null;
     this.drag = null;
     this.pointer = null;
+    this.hintPending = false;
     this.hintObjects = [];
     this.cards = [];
     this.slots.clear();
