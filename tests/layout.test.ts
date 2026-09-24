@@ -114,3 +114,17 @@ describe('mise en page du Klondike', () => {
     ]);
   });
 });
+
+describe('éventail de la défausse en pioche 3 (portrait)', () => {
+  it('ne chevauche jamais la pioche ni les fondations', () => {
+    for (const leftHanded of [false, true]) {
+      const l = computeKlondikeLayout(phone({ drawCount: 3, leftHanded }));
+      const waste = l.piles.waste as { x: number };
+      const topRight = waste.x + 2 * l.wasteFan.dx + l.cardW;
+      const neighbours = leftHanded
+        ? [(l.piles.f0 as { x: number }).x]
+        : [(l.piles.stock as { x: number }).x];
+      for (const x of neighbours) expect(topRight).toBeLessThan(x);
+    }
+  });
+});

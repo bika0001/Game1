@@ -22,8 +22,12 @@ export class MenuScene extends Phaser.Scene {
       this.build();
     };
     this.scale.on('resize', rebuild);
+    // Les écouteurs de `this.events` survivent au redémarrage de la scène : on les retire.
     this.events.on(Phaser.Scenes.Events.RESUME, rebuild);
-    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.scale.off('resize', rebuild));
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      this.scale.off('resize', rebuild);
+      this.events.off(Phaser.Scenes.Events.RESUME, rebuild);
+    });
     this.input.on('pointerdown', () => audio.unlock());
   }
 

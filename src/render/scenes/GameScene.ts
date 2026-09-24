@@ -80,7 +80,13 @@ export class GameScene extends Phaser.Scene {
   private won = false;
   private blockedDismissed = -1;
   private hintPending = false;
-  private pointer: { x: number; y: number; hit: Hit | null; draggable: boolean } | null = null;
+  private pointer: {
+    id: number;
+    x: number;
+    y: number;
+    hit: Hit | null;
+    draggable: boolean;
+  } | null = null;
   private drag: DragState | null = null;
   private unsubscribe: (() => void) | null = null;
 
@@ -165,12 +171,15 @@ export class GameScene extends Phaser.Scene {
     this.unsubscribe = app.onSettingsChange((settings, changed) =>
       this.onSettingsChanged(settings, changed),
     );
+    // Les écouteurs de `this.events` survivent au redémarrage de la scène : on les retire.
+    const onResume = (): void => this.refreshInfo(true);
+    this.events.on(Phaser.Scenes.Events.RESUME, onResume);
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       this.scale.off('resize', this.onResize, this);
+      this.events.off(Phaser.Scenes.Events.RESUME, onResume);
       this.unsubscribe?.();
       app.setActiveSession(null);
     });
-    this.events.on(Phaser.Scenes.Events.RESUME, () => this.refreshInfo(true));
 
     void this.loadSession();
   }
@@ -284,16 +293,21 @@ export class GameScene extends Phaser.Scene {
     this.refreshInfo(true);
   }
 
+  /** Recalcule la mise en page et met à jour tout l'affichage (taille des cartes comprise). */
+  private relayout(): void {
+    this.computeLayout();
+    for (const view of this.cards) view.setMetrics(this.metrics);
+    for (const slot of this.slots.values()) slot.setTexture(slot.texture.key);
+    ensureTableImage(this, this.table);
+    this.rebuildButtons();
+    this.layoutAll();
+  }
+
   private onResize(): void {
     this.dpr = devicePixelRatio();
     this.cancelDrag();
     this.clearHint();
-    this.computeLayout();
-    for (const view of this.cards) view.setMetrics(this.metrics);
-    for (const [id, slot] of this.slots) slot.setTexture(slot.texture.key).setName(id);
-    ensureTableImage(this, this.table);
-    this.rebuildButtons();
-    this.layoutAll();
+    this.relayout();
     if (this.winFx) this.winFx.skip();
     this.sync(false);
     if (this.dialogBuilder) {
@@ -303,19 +317,11 @@ export class GameScene extends Phaser.Scene {
   }
 
   private onSettingsChanged(_settings: Settings, changed: ReadonlyArray<keyof Settings>): void {
-    if (changed.includes('locale')) {
-      this.computeLayout();
-      for (const view of this.cards) view.setMetrics(this.metrics);
-      this.rebuildButtons();
-    }
-    if (
-      changed.some(
-        (k) => k === 'leftHanded' || k === 'locale' || k === 'scoring' || k === 'showTimer',
-      )
-    ) {
-      if (changed.includes('leftHanded')) this.computeLayout();
-      this.layoutAll();
+    if (changed.some((k) => k === 'leftHanded' || k === 'locale')) {
+      this.relayout();
       this.sync(false);
+    } else if (changed.some((k) => k === 'scoring' || k === 'showTimer')) {
+      this.refreshInfo(true);
     }
   }
 
@@ -345,11 +351,8 @@ export class GameScene extends Phaser.Scene {
     this.clearHint();
     this.winFx?.skip();
     this.winFx = null;
-    if (this.layout.orientation === 'landscape' || deal) {
-      // La défausse en éventail dépend du mode de pioche.
-      this.computeLayout();
-      this.layoutAll();
-    }
+    // La place réservée à l'éventail de la défausse dépend du mode de pioche.
+    this.relayout();
     const stock = this.layout.piles.stock;
     for (const view of this.cards) {
       resetCardAppearance(view);
@@ -485,7 +488,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private onKey(event: KeyboardEvent): void {
-    if (!this.session || this.dialog || this.won) return;
+    if (!this.session || this.dialog || this.won || this.pointer || this.drag) return;
     const key = event.key.toLowerCase();
     if ((event.ctrlKey || event.metaKey) && key === 'z') {
       event.preventDefault();
@@ -514,16 +517,24 @@ export class GameScene extends Phaser.Scene {
       this.finishCascadeNow();
       return;
     }
+    if (this.pointer) {
+      // Un seul doigt à la fois : un second contact pendant un geste est ignoré…
+      const previous = this.input.manager.pointers.find((pp) => pp.id === this.pointer?.id);
+      if (previous?.isDown && previous.id !== p.id) return;
+      // … mais un geste dont le relâchement a été perdu (appel, geste système) est abandonné.
+      this.cancelDrag();
+      this.pointer = null;
+    }
     if (over.length > 0 || this.dialog || !this.session || this.won) return;
     this.clearHint();
     const hit = this.hitTest(p.x, p.y);
     const draggable = hit ? klondike.canDrag(this.session.state, hit.pileId, hit.cardIndex) : false;
-    this.pointer = { x: p.x, y: p.y, hit, draggable };
+    this.pointer = { id: p.id, x: p.x, y: p.y, hit, draggable };
   }
 
   private onMove(p: Phaser.Input.Pointer): void {
     const down = this.pointer;
-    if (!down || !p.isDown) return;
+    if (!down || down.id !== p.id || !p.isDown) return;
     if (this.drag) {
       this.updateDrag(p);
       return;
@@ -536,6 +547,7 @@ export class GameScene extends Phaser.Scene {
 
   private onUp(p: Phaser.Input.Pointer): void {
     const down = this.pointer;
+    if (down && down.id !== p.id) return;
     this.pointer = null;
     if (this.drag) {
       this.endDrag();
@@ -1036,6 +1048,8 @@ export class GameScene extends Phaser.Scene {
   }
 
   private showWinDialog(session: KlondikeSession, score: number, bonus: number): void {
+    // Une nouvelle partie a pu être lancée pendant l'animation.
+    if (!this.won || this.session !== session) return;
     const lines = [
       `${t('win.time')} : ${formatTime(session.elapsedMs)}`,
       `${t('win.moves')} : ${session.moveCount}`,

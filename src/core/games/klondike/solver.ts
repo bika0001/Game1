@@ -26,6 +26,8 @@ import {
  *   retournant la défausse si permis) est jouable directement ; les pioches
  *   sont réinsérées lors de la reconstruction de la solution.
  * - Limites de nœuds et de temps configurables.
+ * - Redémarrages courts à ordre perturbé (déterministe) contre la « longue
+ *   traîne » de la recherche en profondeur.
  *
  * La solution renvoyée est une suite de coups atomiques rejouée et vérifiée
  * avec `rules.ts` : elle est garantie légale et gagnante.

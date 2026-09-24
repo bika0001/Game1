@@ -50,8 +50,10 @@ export const CARD = {
   faceUpOffset: 0.3,
   /** Doit rester ≥ hauteur de l'index du haut des faces (≈ 0,2) pour qu'il reste lisible. */
   faceUpMin: 0.215,
-  /** Éventail de la défausse en pioche 3 (× largeur ou × hauteur). */
-  wasteFan: 0.24,
+  /** Éventail de la défausse en pioche 3 : horizontal (× largeur, laisse lire « 10 » en entier)… */
+  wasteFanX: 0.45,
+  /** … ou vertical en paysage (× hauteur, laisse lire tout l'index). */
+  wasteFanY: 0.24,
   /** Largeur maximale d'une carte, en pixels CSS (grands écrans). */
   maxWidthCss: 132,
 } as const;

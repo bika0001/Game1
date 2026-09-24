@@ -116,7 +116,7 @@ function portrait(input: LayoutInput): Candidate {
       cardW,
       cardH,
       piles,
-      wasteFan: { dx: Math.floor(cardW * CARD.wasteFan), dy: 0 },
+      wasteFan: { dx: Math.floor(cardW * CARD.wasteFanX), dy: 0 },
       tableauBottom: bottom - gapY,
       infoBar: { x: 0, y: safe.top, w: W, h: infoH },
       toolbar,
@@ -143,7 +143,7 @@ function landscape(input: LayoutInput, foundationColumns: 1 | 2): Candidate {
   let cardW = availW / units;
   // Hauteur : la pire colonne sous la barre d'infos ; fondations empilées ; pioche + éventail.
   const rows = 4 / foundationColumns;
-  const fanRoom = input.drawCount === 3 ? 2 * CARD.wasteFan : 0;
+  const fanRoom = input.drawCount === 3 ? 2 * CARD.wasteFanY : 0;
   cardW = Math.min(
     cardW,
     (availH - infoH) / (CARD.aspect * WORST_COLUMN),
@@ -192,7 +192,7 @@ function landscape(input: LayoutInput, foundationColumns: 1 | 2): Candidate {
       cardW,
       cardH,
       piles,
-      wasteFan: { dx: 0, dy: Math.floor(cardH * CARD.wasteFan) },
+      wasteFan: { dx: 0, dy: Math.floor(cardH * CARD.wasteFanY) },
       tableauBottom: bottom,
       infoBar: { x: tabX, y: top - pad / 2, w: tableauW, h: infoH },
       toolbar: {
