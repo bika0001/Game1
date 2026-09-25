@@ -1,5 +1,5 @@
 import type Phaser from 'phaser';
-import { rankLabels } from '../i18n';
+import { RANK_LABELS } from '../core/cards';
 import { app } from './app';
 import { generateCardTextures, type CardMetrics } from './cardart/textures';
 import { prepareDecorTexture } from './decor/decors';
@@ -27,11 +27,10 @@ export function klondikeLayoutFor(
 
 /** Textures des cartes à la taille de la mise en page (régénérées seulement si elle change). */
 export function cardTexturesFor(scene: Phaser.Scene, layout: KlondikeLayout): CardMetrics {
-  const labels = rankLabels();
   return generateCardTextures(scene, layout.cardW, layout.cardH, {
-    rankLabels: labels,
+    rankLabels: RANK_LABELS,
     back: 'waves',
-    aceLabel: labels[0] ?? 'A',
+    aceLabel: RANK_LABELS[0] ?? 'A',
   });
 }
 

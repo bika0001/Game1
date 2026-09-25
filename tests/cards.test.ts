@@ -15,6 +15,7 @@ import {
   RANKS,
   SPADES,
   SUITS,
+  RANK_LABELS,
 } from '../src/core/cards';
 
 describe('cartes', () => {
@@ -31,6 +32,12 @@ describe('cartes', () => {
       }
     }
     expect(seen.size).toBe(52);
+  });
+
+  it('utilise les index anglo-saxons (A, J, Q, K) dans toutes les langues', () => {
+    expect(RANK_LABELS).toHaveLength(13);
+    expect(RANK_LABELS[0]).toBe('A');
+    expect(RANK_LABELS.slice(-3)).toEqual(['J', 'Q', 'K']);
   });
 
   it('distingue les rouges des noires', () => {

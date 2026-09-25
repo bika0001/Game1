@@ -80,7 +80,8 @@ Tout ce qui touche au ressenti, au style visuel ou à la monétisation reste sou
     hauteur, barre d'outils verticale sur le bord (plus de hauteur pour les cartes sur téléphone).
 25. **Barre d'outils à 5 boutons avec libellés** (Menu, Réglages, Nouvelle, Indice, Annuler) :
     « Annuler » sous le pouce.
-26. **Index des figures selon la langue** : V, D, R en français ; J, Q, K en anglais.
+26. **Index anglo-saxons dans toutes les langues** (à ta demande) : A, J, Q, K, y compris quand
+    l'interface est en français.
 27. **Éventail de la défausse (pioche 3)** : 0,45 largeur de carte en portrait pour lire « 10 » en entier.
 28. **Menu** : « Continuer la partie » si une partie est en cours ; commencer une nouvelle partie
     abandonne la précédente (événement `game_abandoned`).

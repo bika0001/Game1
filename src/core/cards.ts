@@ -49,7 +49,22 @@ export function canStackAlternating(lower: Card, upper: Card): boolean {
   return rankOf(upper) === rankOf(lower) - 1 && ((lower ^ upper) & 1) === 1;
 }
 
-const RANK_LABELS = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K'];
+/** Index des rangs, de l'As au Roi : les index anglo-saxons (J, Q, K) dans toutes les langues. */
+export const RANK_LABELS: readonly string[] = [
+  'A',
+  '2',
+  '3',
+  '4',
+  '5',
+  '6',
+  '7',
+  '8',
+  '9',
+  '10',
+  'J',
+  'Q',
+  'K',
+];
 const SUIT_SYMBOLS = ['♠', '♥', '♣', '♦'];
 
 /** Représentation lisible, pour le débogage et les tests (« 10♥ », « K♠ »). */

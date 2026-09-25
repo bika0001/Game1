@@ -37,9 +37,4 @@ export function t(key: MessageKey, params: Record<string, string | number> = {})
   return template.replace(/\{(\w+)\}/g, (_, name: string) => String(params[name] ?? `{${name}}`));
 }
 
-/** Libellés des rangs (A … R en français, A … K en anglais). */
-export function rankLabels(): string[] {
-  return t('cards.ranks').split(',');
-}
-
 export type { MessageKey };

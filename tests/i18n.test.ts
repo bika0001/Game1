@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { detectLocale, getLocale, rankLabels, setLocale, t } from '../src/i18n';
+import { detectLocale, getLocale, setLocale, t } from '../src/i18n';
 import { fr } from '../src/i18n/fr';
 import { en } from '../src/i18n/en';
 import { formatTime } from '../src/render/format';
@@ -17,12 +17,6 @@ describe('traductions', () => {
     expect(getLocale()).toBe('en');
     expect(t('menu.variant', { draw: 1 })).toBe('Klondike · draw 1');
     expect(t('win.bonus')).toContain('{bonus}');
-  });
-
-  it('donnent les libellés des rangs (V, D, R en français)', () => {
-    expect(rankLabels().slice(-3)).toEqual(['V', 'D', 'R']);
-    setLocale('en');
-    expect(rankLabels().slice(-3)).toEqual(['J', 'Q', 'K']);
   });
 
   it('détectent la langue du navigateur', () => {

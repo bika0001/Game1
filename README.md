@@ -29,7 +29,7 @@ npm run dev          # http://localhost:5173 (aussi accessible depuis un télép
 | `npm run gen-deals` | régénère les banques de donnes gagnables (≈ 15 min sur 4 cœurs)       |
 
 Outil de développement : `http://localhost:5173/cardsheet.html?w=160` affiche la planche des 52 cartes
-et du dos (`&only=faces` pour les figures seules, `&lang=en` pour les index anglais).
+et du dos (`&only=faces` pour les figures seules).
 
 ## Ce que contient la phase 1
 

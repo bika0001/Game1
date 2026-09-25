@@ -79,8 +79,6 @@ export const fr = {
   'settings.nextGame': 'Pioche, donnes et passages s’appliquent à la prochaine partie.',
   'settings.limitedHint': 'Pioche 1 : un passage. Pioche 3 : trois passages.',
   'settings.back': 'Retour',
-
-  'cards.ranks': 'A,2,3,4,5,6,7,8,9,10,V,D,R',
 } as const;
 
 export type MessageKey = keyof typeof fr;

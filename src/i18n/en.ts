@@ -80,6 +80,4 @@ export const en: Record<MessageKey, string> = {
   'settings.nextGame': 'Draw, deals and passes apply to the next game.',
   'settings.limitedHint': 'Draw 1: one pass. Draw 3: three passes.',
   'settings.back': 'Back',
-
-  'cards.ranks': 'A,2,3,4,5,6,7,8,9,10,J,Q,K',
 };

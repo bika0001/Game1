@@ -3,12 +3,11 @@
  * du dos, pour juger l'art des cartes. Ouvrir /cardsheet.html?w=160 avec `npm run dev`.
  */
 import { drawCardBack } from '../render/cardart/backs';
+import { RANK_LABELS } from '../core/cards';
 import { drawCardFace } from '../render/cardart/faces';
-import { rankLabels, setLocale } from '../i18n';
 
 const params = new URLSearchParams(location.search);
 const w = Number(params.get('w') ?? 160);
-setLocale(params.get('lang') === 'en' ? 'en' : 'fr');
 const h = Math.round(w * 1.4);
 const gap = Math.round(w * 0.12);
 const facesOnly = params.get('only') === 'faces';
@@ -21,7 +20,7 @@ canvas.height = rows * (h + gap) + gap;
 const ctx = canvas.getContext('2d') as CanvasRenderingContext2D;
 ctx.fillStyle = '#0f5260';
 ctx.fillRect(0, 0, canvas.width, canvas.height);
-const style = { rankLabels: rankLabels() };
+const style = { rankLabels: RANK_LABELS };
 for (let suit = 0; suit < 4; suit++) {
   ranks.forEach((r, i) => {
     drawCardFace(ctx, r * 4 + suit, gap + i * (w + gap), gap + suit * (h + gap), w, h, style);

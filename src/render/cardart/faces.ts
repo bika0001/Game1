@@ -6,7 +6,7 @@ import { drawSuit } from './suits';
 type Ctx = CanvasRenderingContext2D;
 
 export interface FaceStyle {
-  /** Libellés des 13 rangs (A … R en français). */
+  /** Libellés des 13 rangs, de l'As au Roi. */
   readonly rankLabels: readonly string[];
 }
 
